@@ -2,4 +2,4 @@
 
 This repo is for storing all the files from the course 
 
-![Alt text](CourseraCertificate.png)
+![Alt text](./Assignments/CourseraCertificate.png)
