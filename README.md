@@ -2,4 +2,4 @@
 
 This repo is for storing all the files from the course 
 
-![Alt text]([https://example.com/logo.png](https://s3.amazonaws.com/coursera_assets/meta_images/generated/CERTIFICATE_LANDING_PAGE/CERTIFICATE_LANDING_PAGE~6ZKEAP7Y5H7G/CERTIFICATE_LANDING_PAGE~6ZKEAP7Y5H7G.jpeg))
+![CourseraCertificate](https://github.com/Gabrax/Data_Analyst/assets/138719516/70d8379c-8959-4324-9998-cdedf0594a46)
