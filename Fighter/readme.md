@@ -1,114 +1,38 @@
-# Phaser 3 + TypeScript + Vite.js Template
-> Make Phaser 3 games with TypeScript and modern frontend tooling.
+# Phaser: Real-time Multiplayer with Colyseus
 
-![License](https://img.shields.io/badge/license-MIT-green)
+Full source-code for the step-by-step tutorial on how to use Phaser + Colyseus together.
 
-This is a TypeScript specific fork of [phaser3-vite-template](https://github.com/ourcade/phaser3-vite-template).
+- [Live Demo](https://colyseus-phaser-tutorial.glitch.me/)
+- [See step-by-step Tutorial](https://learn.colyseus.io/phaser)
+- [See Colyseus documentation](https://docs.colyseus.io/)
 
-## Prerequisites
+## How to run the **server**
 
-You'll need [Node.js](https://nodejs.org/en/) and [npm](https://www.npmjs.com/) installed.
+- Download and install [Node.js LTS](https://nodejs.org/en/download/)
+- Clone or download this repository.
+- Run the following commands:
 
-It is highly recommended to use [Node Version Manager](https://github.com/nvm-sh/nvm) (nvm) to install Node.js and npm.
-
-For Windows users there is [Node Version Manager for Windows](https://github.com/coreybutler/nvm-windows).
-
-Install Node.js and `npm` with `nvm`:
-
-```bash
-nvm install node
-
-nvm use node
 ```
-
-Replace 'node' with 'latest' for `nvm-windows`.
-
-## Getting Started
-
-You can clone this repository or use [degit](https://github.com/Rich-Harris/degit) to scaffold the project like this:
-
-```bash
-npx degit https://github.com/ourcade/phaser3-typescript-vite-template my-folder-name
-cd my-folder-name
-
+cd server
 npm install
+npm start
 ```
 
-Start development server:
+The WebSocket server should be available locally at `ws://localhost:2567` ([http://localhost:2567](http://localhost:2567) should be accessible.)
+
+## How to run the **client**
+
+In a new Terminal tab, run the following commands:
 
 ```
-npm run start
+cd client
+npm install
+npm start
 ```
 
-To create a production build:
-
-```
-npm run build
-```
-
-Production files will be placed in the `dist` folder. Then upload those files to a web server. 🎉
-
-## Project Structure
-
-```
-    .
-    ├── dist
-    ├── node_modules
-    ├── public
-    ├── src
-    │   ├── HelloWorldScene.ts
-    │   ├── main.ts
-	├── index.html
-    ├── package.json
-```
-
-TypeScript files are intended for the `src` folder. `main.ts` is the entry point referenced by `index.html`.
-
-Other than that there is no opinion on how you should structure your project.
-
-There is an example `HelloWorldScene.ts` file that can be placed inside a `scenes` folder to organize by type or elsewhere to organize by function. For example, you can keep all files specific to the HelloWorld scene in a `hello-world` folder.
-
-It is all up to you!
-
-## Static Assets
-
-Any static assets like images or audio files should be placed in the `public` folder. It'll then be served from the root. For example: http://localhost:8000/images/my-image.png
-
-Example `public` structure:
-
-```
-    public
-    ├── images
-    │   ├── my-image.png
-    ├── music
-    │   ├── ...
-    ├── sfx
-    │   ├── ...
-```
-
-They can then be loaded by Phaser with `this.image.load('my-image', 'images/my-image.png')`.
-
-# TypeScript ESLint
-
-This template uses a basic `typescript-eslint` set up for code linting.
-
-It does not aim to be opinionated.
-
-[See here for rules to turn on or off](https://eslint.org/docs/rules/).
-
-## Dev Server Port
-
-You can change the dev server's port number by modifying the `vite.config.ts` file. Look for the `server` section:
-
-```js
-{
-	// ...
-	server: { host: '0.0.0.0', port: 8000 },
-}
-```
-
-Change 8000 to whatever you want.
+The client should be accessible at [`http://localhost:1234`](`http://localhost:1234`).
 
 ## License
 
-[MIT License](https://github.com/ourcade/phaser3-vite-template/blob/master/LICENSE)
+- Source-code is licensed under MIT License.
+- The [assets](https://www.kenney.nl/assets/pixel-shmup) are licensed under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/). 
