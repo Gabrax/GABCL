@@ -2,56 +2,39 @@ import Phaser from "phaser";
 
 export class SceneSelector extends Phaser.Scene {
 
-    parts = {
-        '1': "Basic Player Movement",
-        '2': "Interpolation",
-        '3': "Client-predicted Input",
-        '4': "Fixed Tickrate",
-    };
-
     constructor() {
         super({ key: "selector", active: true });
     }
 
     preload() {
-        // update menu background color
-        this.cameras.main.setBackgroundColor(0x000000);
+        this.load.spritesheet('startgame', 'src/assets/startbackground-spritesheet.png', {
+            frameWidth: 1920,   // Set this to the width of each frame in the spritesheet
+            frameHeight: 1080   // Set this to the height of each frame in the spritesheet
+        });
 
-        // preload demo assets
-        // this.load.image('ship_0001', 'assets/ship_0001.png');
         this.load.image('ship_0001', 'https://cdn.glitch.global/3e033dcd-d5be-4db4-99e8-086ae90969ec/ship_0001.png?v=1649945243288');
     }
 
     create() {
-        // automatically navigate to hash scene if provided
-        if (window.location.hash) {
-            this.runScene(window.location.hash.substring(1));
-            return;
-        }
+        this.anims.create({
+            key: 'startGameAnim',
+            frames: this.anims.generateFrameNumbers('startgame', { start: 0, end: 1 }),  // Adjust the 'end' based on the number of frames
+            frameRate: 3,  // Adjust the frame rate to match the original GIF's speed
+            repeat: -1     // Use -1 to loop the animation
+        });
 
-        const textStyle: Phaser.Types.GameObjects.Text.TextStyle = {
-            color: "#ff0000",
-            fontSize: "32px",
-            // fontSize: "24px",
-            fontFamily: "Arial"
-        };
+        // Add the animated sprite to the scene
+        const animatedSprite = this.add.sprite(0, 0, 'startgame').setOrigin(0, 0);
+        animatedSprite.setDisplaySize(1000, 550);
+        animatedSprite.play('startGameAnim');
 
-        for (let partNum in this.parts) {
-            const index = parseInt(partNum) - 1;
-            const label = this.parts[partNum];
-
-            // this.add.text(32, 32 + 32 * index, `Part ${partNum}: ${label}`, textStyle)
-            this.add.text(130, 150 + 70 * index, `Part ${partNum}: ${label}`, textStyle)
-                .setInteractive()
-                .setPadding(6)
-                .on("pointerdown", () => {
-                    this.runScene(`part${partNum}`);
-                });
-        }
+        // Listen for the "Enter" key press
+        this.input.keyboard.on('keydown-ENTER', () => {
+            this.runScene("part4"); // Navigate to the "Fixed Tickrate" scene
+        });
     }
 
-    runScene(key: string) {
-        this.game.scene.switch("selector", key)
+    runScene(key) {
+        this.game.scene.switch("selector", key);
     }
-
 }

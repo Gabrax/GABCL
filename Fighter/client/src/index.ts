@@ -1,22 +1,25 @@
 import Phaser from "phaser";
 
-import { SceneSelector } from "./scenes/SceneSelector";
-import { Part1Scene } from "./scenes/Part1Scene";
-import { Part2Scene } from "./scenes/Part2Scene";
-import { Part3Scene } from "./scenes/Part3Scene";
+import { SceneSelector } from "./scenes/SceneSelector";;
 import { Part4Scene } from "./scenes/Part4Scene";
 
 import { BACKEND_HTTP_URL } from "./backend";
 
+const sizes = {
+    width: 1000,
+    height: 550
+}
+
 const config: Phaser.Types.Core.GameConfig = {
-    type: Phaser.AUTO,
+    type: Phaser.WEBGL,
     fps: {
         target: 60,
         forceSetTimeOut: true,
-        smoothStep: false,
+        smoothStep: true,
     },
-    width: 1920,
-    height: 1000,
+    width: sizes.width,
+    height: sizes.height,
+    canvas: gameCanvas,
     
     // height: 200,
     backgroundColor: '#b6d53c',
@@ -25,7 +28,7 @@ const config: Phaser.Types.Core.GameConfig = {
         default: "arcade"
     },
     pixelArt: true,
-    scene: [SceneSelector, Part1Scene, Part2Scene, Part3Scene, Part4Scene],
+    scene: [SceneSelector, Part4Scene],
 };
 
 const game = new Phaser.Game(config);
