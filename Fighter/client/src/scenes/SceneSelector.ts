@@ -7,7 +7,7 @@ export class SceneSelector extends Phaser.Scene {
     }
 
     preload() {
-        this.load.spritesheet('startgame', 'src/assets/startbackground-spritesheet.png', {
+        this.load.spritesheet('startgame', '/StartScreen/startbackground-spritesheet.png', {
             frameWidth: 1920,   // Set this to the width of each frame in the spritesheet
             frameHeight: 1080   // Set this to the height of each frame in the spritesheet
         });
