@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-export class SceneSelector extends Phaser.Scene {
+export class StartScreen extends Phaser.Scene {
 
     constructor() {
         super({ key: "selector", active: true });
