@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-import { SceneSelector } from "./scenes/SceneSelector";;
+import { StartScreen } from "./scenes/StartScreen";
 import { Part4Scene } from "./scenes/Part4Scene";
 
 import { BACKEND_HTTP_URL } from "./backend";
@@ -28,7 +28,7 @@ const config: Phaser.Types.Core.GameConfig = {
         default: "arcade"
     },
     pixelArt: true,
-    scene: [SceneSelector, Part4Scene],
+    scene: [StartScreen, Part4Scene],
 };
 
 const game = new Phaser.Game(config);

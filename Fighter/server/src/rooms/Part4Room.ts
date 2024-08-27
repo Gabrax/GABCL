@@ -4,18 +4,21 @@ import { InputData, MyRoomState, Player } from "./Part4State";
 export class Part4Room extends Room<MyRoomState> {
   fixedTimeStep = 1000 / 60;
 
+  // Maximum number of players allowed in the room
+  maxPlayers = 2;
+
   onCreate (options: any) {
     this.setState(new MyRoomState());
 
-    // set map dimensions
-    this.state.mapWidth = 800;
-    this.state.mapHeight = 600;
+    // Set map dimensions
+    this.state.mapWidth = 1000;
+    this.state.mapHeight = 550;
 
     this.onMessage(0, (client, input) => {
-      // handle player input
+      // Handle player input
       const player = this.state.players.get(client.sessionId);
 
-      // enqueue input to user input buffer.
+      // Enqueue input to user input buffer
       player.inputQueue.push(input);
     });
 
@@ -36,7 +39,7 @@ export class Part4Room extends Room<MyRoomState> {
     this.state.players.forEach(player => {
       let input: InputData;
 
-      // dequeue player inputs
+      // Dequeue player inputs
       while (input = player.inputQueue.shift()) {
         if (input.left) {
           player.x -= velocity;
@@ -58,12 +61,29 @@ export class Part4Room extends Room<MyRoomState> {
   }
 
   onJoin (client: Client, options: any) {
+    // Check if room is full
+    if (this.state.players.size >= this.maxPlayers) {
+      console.log("Room is full, kicking the player");
+      client.leave();
+      return;
+    }
+
     console.log(client.sessionId, "joined!");
 
     const player = new Player();
-    player.x = Math.random() * this.state.mapWidth;
-    player.y = Math.random() * this.state.mapHeight;
 
+    // Assign specific positions based on the order of joining
+    if (this.state.players.size === 0) {
+      // First player position
+      player.x = 350;
+      player.y = 400;
+    } else if (this.state.players.size === 1) {
+      // Second player position
+      player.x = 650;
+      player.y = 400;
+    }
+
+    // Add the player to the room state
     this.state.players.set(client.sessionId, player);
   }
 
@@ -75,5 +95,4 @@ export class Part4Room extends Room<MyRoomState> {
   onDispose() {
     console.log("room", this.roomId, "disposing...");
   }
-
 }

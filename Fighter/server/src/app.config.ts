@@ -2,9 +2,7 @@ import config from "@colyseus/tools";
 import { monitor } from "@colyseus/monitor";
 import { Server } from "colyseus";
 
-/**
- * Import your Room files
- */
+
 import { Part4Room } from "./rooms/Part4Room";
 
 let gameServerRef: Server;
