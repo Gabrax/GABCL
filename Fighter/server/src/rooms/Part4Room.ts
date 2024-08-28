@@ -34,7 +34,7 @@ export class Part4Room extends Room<MyRoomState> {
   }
 
   fixedTick(timeStep: number) {
-    const velocity = 2;
+    const velocity = 3;
 
     this.state.players.forEach(player => {
       let input: InputData;
@@ -43,17 +43,19 @@ export class Part4Room extends Room<MyRoomState> {
       while (input = player.inputQueue.shift()) {
         if (input.left) {
           player.x -= velocity;
-
         } else if (input.right) {
           player.x += velocity;
         }
 
         if (input.up) {
           player.y -= velocity;
-
         } else if (input.down) {
           player.y += velocity;
         }
+
+        // Enforce boundaries on the server side
+        player.x = Math.max(80, Math.min(player.x, 1000));
+        player.y = Math.max(340, Math.min(player.y, 420));
 
         player.tick = input.tick;
       }

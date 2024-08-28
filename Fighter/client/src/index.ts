@@ -2,6 +2,7 @@ import Phaser from "phaser";
 
 import { StartScreen } from "./scenes/StartScreen";
 import { Part4Scene } from "./scenes/Part4Scene";
+import GesturesPlugin from 'phaser3-rex-plugins/plugins/gestures-plugin.js';
 
 import { BACKEND_HTTP_URL } from "./backend";
 
@@ -20,9 +21,13 @@ const config: Phaser.Types.Core.GameConfig = {
     width: sizes.width,
     height: sizes.height,
     canvas: gameCanvas,
+    plugins: {
+        global: [
+            { key: 'rexGestures', plugin: GesturesPlugin, mapping: 'rexGestures' }
+        ]
+    },
     
     // height: 200,
-    backgroundColor: '#b6d53c',
     parent: 'phaser-example',
     physics: {
         default: "arcade"
@@ -33,9 +38,6 @@ const config: Phaser.Types.Core.GameConfig = {
 
 const game = new Phaser.Game(config);
 
-/**
- * Create FPS selector
- */
 
 // current fps label
 const fpsInput = document.querySelector<HTMLInputElement>("input#fps");
