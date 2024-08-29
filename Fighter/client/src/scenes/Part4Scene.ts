@@ -3,7 +3,6 @@ import { Room, Client } from "colyseus.js";
 import { BACKEND_URL } from "../backend";
 import GesturesPlugin from 'phaser3-rex-plugins/plugins/gestures-plugin.js';
 
-// Define animation states
 enum PlayerState {
     Idle,
     Walking,
@@ -169,16 +168,22 @@ export class Part4Scene extends Phaser.Scene {
                     this.remoteRef.x = Phaser.Math.Clamp(player.x, 80, 1000);
                     this.remoteRef.y = Phaser.Math.Clamp(player.y, 340, 420);
                 });
-
             } else {
                 // listening for server updates
                 player.onChange(() => {
                     entity.setData('serverX', player.x);
                     entity.setData('serverY', player.y);
+                    entity.setData('state', player.state);
+                    entity.setData('isFacingLeft', player.isFacingLeft);
+                
+                    // Update position
+                    entity.x = player.x;
+                    entity.y = player.y;
+                
+                    // Update animation state
+                    this.updateAnimationState(entity, player.state, entity.texture.key);
                 });
-
             }
-
         });
 
         this.room.state.players.onRemove((player, sessionId) => {
@@ -191,35 +196,44 @@ export class Part4Scene extends Phaser.Scene {
 
         this.cameras.main.setBounds(0, 0, 1000, 550);
     }
+
     setupDoubleTapDetection() {
-        // Setup double-tap detection for LEFT key
         this.input.keyboard.on('keydown-LEFT', (event) => {
+            //console.log('Key down LEFT event:', event);
             this.handleDoubleTap('left');
         });
-
-        // Setup double-tap detection for RIGHT key
+    
         this.input.keyboard.on('keydown-RIGHT', (event) => {
+            //console.log('Key down RIGHT event:', event);
             this.handleDoubleTap('right');
         });
     }
 
     handleDoubleTap(direction: 'left' | 'right') {
         const currentTime = this.time.now;
-        const lastPressTime = this.lastKeyPressTime[direction];
+        const lastPressTime = this.lastKeyPressTime[direction] || 0;
+
+        //console.log(`Handling double-tap for ${direction}. Last press time: ${lastPressTime}, Current time: ${currentTime}`);
+
         if (currentTime - lastPressTime <= this.doubleTapThreshold) {
-            // Double-tap detected
+            //console.log(`Double-tap detected for ${direction}`);
             if (direction === 'left') {
                 if (!this.isFacingLeft) {
                     this.isFacingLeft = true;
                     this.currentPlayer.setFlipX(this.isFacingLeft);
+                    console.log("Flipping left");
+                    this.room.send("playerFlipChange", { isFacingLeft: this.isFacingLeft });
                 }
             } else if (direction === 'right') {
                 if (this.isFacingLeft) {
                     this.isFacingLeft = false;
                     this.currentPlayer.setFlipX(this.isFacingLeft);
+                    console.log("Flipping right");
+                    this.room.send("playerFlipChange", { isFacingLeft: this.isFacingLeft });
                 }
             }
         }
+
         this.lastKeyPressTime[direction] = currentTime;
     }
 
@@ -228,15 +242,39 @@ export class Part4Scene extends Phaser.Scene {
         const connectionStatusText = this.add.sprite(55, 250, 'connect').setOrigin(0, 0);
         connectionStatusText.setDisplaySize(900, 60);
         connectionStatusText.play('tryin');
-
+    
         const client = new Client(BACKEND_URL);
-
+    
         try {
             this.room = await client.joinOrCreate("part4_room", {});
             connectionStatusText.destroy();
+    
+            // Setup message handlers after successfully joining the room
+            this.setupMessageHandlers();
         } catch (e) {
-            console.log("Could not connect with the server");
+            console.log("Could not connect with the server", e);
+            connectionStatusText.destroy();
         }
+    }
+    
+    setupMessageHandlers() {
+        this.room.onMessage("playerStateChange", (message) => {
+            //console.log("Received playerStateChange message:", message);
+            const { sessionId, state } = message;
+            const player = this.playerEntities[sessionId];
+            if (player) {
+                this.updateAnimationState(player, state, player.texture.key);
+            }
+        });
+    
+        this.room.onMessage("playerFlipChange", (message) => {
+            //console.log("Received playerFlipChange message:", message);
+            const { sessionId, isFacingLeft } = message;
+            const player = this.playerEntities[sessionId];
+            if (player) {
+                player.setFlipX(isFacingLeft);
+            }
+        });
     }
 
     update(time: number, delta: number): void {
@@ -286,9 +324,6 @@ export class Part4Scene extends Phaser.Scene {
         this.remoteRef.x = this.localRef.x;
         this.remoteRef.y = this.localRef.y;
 
-        // Update animation based on movement state
-        this.updatePlayerState(isMoving);
-
         // Interpolate other player entities
         for (let sessionId in this.playerEntities) {
             if (sessionId === this.room.sessionId) {
@@ -316,8 +351,32 @@ export class Part4Scene extends Phaser.Scene {
             ...this.inputPayload, 
             tick: this.currentTick,
             x: clampedX,
-            y: clampedY 
+            y: clampedY,
+            //state: this.playerState,
+            //isFacingLeft: this.isFacingLeft
         });
+    }
+
+    updateAnimationState(entity: Phaser.Physics.Arcade.Sprite, state: PlayerState, textureKey: string) {
+        const isJin = textureKey === 'jin-def';
+    
+        switch (state) {
+            case PlayerState.Idle:
+                entity.play(isJin ? 'jin-idle' : 'kazuya-idle');
+                break;
+            case PlayerState.Walking:
+                if (entity.flipX) {
+                    entity.play(isJin ? 'jin-walkback' : 'kazuya-walkback');
+                } else {
+                    entity.play(isJin ? 'jin-walk' : 'kazuya-walk');
+                }
+                break;
+            case PlayerState.WalkingBackward:
+                entity.play(isJin ? 'jin-walkback' : 'kazuya-walkback');
+                break;
+            default:
+                break;
+        }
     }
 
     updatePlayerState(isMoving: boolean) {

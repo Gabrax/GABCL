@@ -16,7 +16,7 @@ export class StartScreen extends Phaser.Scene {
     create() {
         this.anims.create({
             key: 'startGameAnim',
-            frames: this.anims.generateFrameNumbers('startgame', { start: 0, end: 4 }),  // Adjust the 'end' based on the number of frames
+            frames: this.anims.generateFrameNumbers('startgame', { start: 0, end: 1 }),  // Adjust the 'end' based on the number of frames
             frameRate: 2,  // Adjust the frame rate to match the original GIF's speed
             repeat: -1     // Use -1 to loop the animation
         });
