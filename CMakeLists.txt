@@ -2,14 +2,14 @@ cmake_minimum_required(VERSION 3.5)
 
 include(FetchContent)
 
-# Project name and version
 project(vk_engine)
 
-# Set the C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+if(MSVC)
+    add_compile_options(/MP)
+endif()
 
 # Assimp 
 FetchContent_Declare(
@@ -60,10 +60,8 @@ add_subdirectory(vendor/nlohmann-json)
 add_subdirectory(vendor/physx)
 add_subdirectory(vendor/Vulkan)
 
-# Define the source files
 file(GLOB_RECURSE MY_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-# Add executable
 add_executable("${PROJECT_NAME}")
 
 #file(GLOB IMGUIMO_SRC "${imguizmo_SOURCE_DIR}/ImGuizmo.cpp")
@@ -76,15 +74,16 @@ target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC GLFW_INCLUDE_NONE=1)
 
 target_sources("${CMAKE_PROJECT_NAME}" PRIVATE ${MY_SOURCES})
 
-# Set resource folder as a definition for runtime access
-target_compile_definitions(${PROJECT_NAME} PRIVATE 
-    RESOURCE_DIR="${CMAKE_SOURCE_DIR}/res"
-)
+file(COPY
+    "${CMAKE_BINARY_DIR}/_deps/assimp-build/bin/assimp-vc143-mt.dll"
+    "${CMAKE_SOURCE_DIR}/vendor/physx/lib/release/PhysX_64.dll"
+    "${CMAKE_SOURCE_DIR}/vendor/physx/lib/release/PhysXCommon_64.dll"
+    "${CMAKE_SOURCE_DIR}/vendor/physx/lib/release/PhysXCooking_64.dll"
+    "${CMAKE_SOURCE_DIR}/vendor/physx/lib/release/PhysXFoundation_64.dll"
+    "${CMAKE_SOURCE_DIR}/vendor/physx/lib/release/PVDRuntime_64.dll"
 
-# Set default configuration to Release
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the build type (Debug or Release)" FORCE)
-endif()
+    DESTINATION "${CMAKE_BINARY_DIR}"
+)
 
 # Target link libraries
 target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE glm glfw stb_image raudio imgui assimp glText tinyOBJ meshoptimizer EnTT JSONparser TracyClient PhysX Vulkan)
