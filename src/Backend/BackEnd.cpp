@@ -1,7 +1,7 @@
 #include "BackEnd.h"
 #include <iostream>
 #include <string>
-//#include "Vulkan/VK_backEnd.h"
+#include "Vulkan/VK_Backend.h"
 #include "../Input/Input.h"
 
 namespace BackEnd {
@@ -34,7 +34,7 @@ namespace BackEnd {
 
     void Init() {
 
-        //VulkanBackEnd::CreateVulkanInstance();
+        VulkanBackEnd::CreateVulkanInstance();
 
         int width = 1920 * 1.5f;
         int height = 1080 * 1.5f;
@@ -72,8 +72,8 @@ namespace BackEnd {
         glfwSetFramebufferSizeCallback(_window, framebuffer_size_callback);
         glfwSetWindowFocusCallback(_window, window_focus_callback);
 
-        //VulkanBackEnd::InitMinimum();
-        // VulkanRenderer minimum init is tangled in the above function
+        VulkanBackEnd::InitMinimum();
+        //VulkanRenderer minimum init is tangled in the above function
         
         //AssetManager::LoadFont();
 
@@ -125,6 +125,11 @@ namespace BackEnd {
             _currentWindowHeight = _windowedHeight;
             _window = glfwCreateWindow(_windowedWidth, _windowedHeight, "VK_Engine", NULL, NULL);
             glfwSetWindowPos(_window, 100, 100);
+            if (_mode != NULL) {
+                int xpos = (_mode->width - _currentWindowWidth) / 2;
+                int ypos = (_mode->height - _currentWindowHeight) / 2;
+                glfwSetWindowPos(_window, xpos, ypos);
+            }
         }
         else if (windowedMode == WindowedMode::FULLSCREEN) {
             _currentWindowWidth = _fullscreenWidth;
@@ -139,7 +144,11 @@ namespace BackEnd {
             _currentWindowWidth = _windowedWidth;
             _currentWindowHeight = _windowedHeight;
             glfwSetWindowMonitor(_window, nullptr, 0, 0, _windowedWidth, _windowedHeight, _mode->refreshRate);
-            glfwSetWindowPos(_window, 0, 0);
+            if (_mode != NULL) {
+                int xpos = (_mode->width - _currentWindowWidth) / 2;
+                int ypos = (_mode->height - _currentWindowHeight) / 2;
+                glfwSetWindowPos(_window, xpos, ypos);
+            }
         }
         else if (windowedMode == WindowedMode::FULLSCREEN) {
             _currentWindowWidth = _fullscreenWidth;
@@ -156,9 +165,8 @@ namespace BackEnd {
         else {
             SetWindowedMode(WindowedMode::WINDOWED);
         }
-        /*else {
-            //VulkanBackEnd::HandleFrameBufferResized();
-        }*/
+        
+        VulkanBackEnd::HandleFrameBufferResized();
     }
 
     void ForceCloseWindow() {
@@ -239,7 +247,7 @@ namespace BackEnd {
 
     void framebuffer_size_callback(GLFWwindow* /*window*/, int width, int height) {
         
-       //VulkanBackEnd::MarkFrameBufferAsResized();
+       VulkanBackEnd::MarkFrameBufferAsResized();
     }
 
     void window_focus_callback(GLFWwindow* /*window*/, int focused) {

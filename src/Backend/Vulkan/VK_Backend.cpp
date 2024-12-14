@@ -16,14 +16,14 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include "VK_Backend.h"
-#include "VkBootstrap.h"
+#include <VkBootstrap.h>
 //#include "VK_assetManager.h"
 #include <vk_mem_alloc.h>
-#include "VK_Renderer.h"
+//#include "VK_Renderer.h"
 #include "../BackEnd.h"
 //#include "../../Core/AssetManager.h"
 //#include "../../Game/Scene.h"
-#include "VK_ErrorCheck.h"
+#include "VK_ErrorCheck.hpp"
 
 namespace VulkanBackEnd {
 
@@ -161,21 +161,21 @@ void VulkanBackEnd::InitMinimum() {
     SelectPhysicalDevice();
     CreateSwapchain();
 
-    //VulkanRenderer::CreateMinimumShaders();
-    //VulkanRenderer::CreateRenderTargets();
+    ////VulkanRenderer::CreateMinimumShaders();
+    ////VulkanRenderer::CreateRenderTargets();
 
     CreateCommandBuffers();
     CreateSyncStructures();
     CreateSampler();
 
-    //VulkanRenderer::CreateDescriptorSets();
-    //VulkanRenderer::CreatePipelinesMinimum();
+    ////VulkanRenderer::CreateDescriptorSets();
+    ////VulkanRenderer::CreatePipelinesMinimum();
 
-    //VulkanRenderer::CreateStorageBuffers();
+    ////VulkanRenderer::CreateStorageBuffers();
 }
 
 void VulkanBackEnd::SetGLFWSurface() {
-    glfwCreateWindowSurface(_instance, BackEnd::GetWindowPointer(), nullptr, &_surface);
+    glfwCreateWindowSurface(_instance, BackEnd::GetWindowPtr(), nullptr, &_surface);
 }
 
 void VulkanBackEnd::CreateVulkanInstance() {
@@ -332,7 +332,7 @@ void VulkanBackEnd::SelectPhysicalDevice() {
     vkGetAccelerationStructureBuildSizesKHR = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(vkGetDeviceProcAddr(_device, "vkGetAccelerationStructureBuildSizesKHR"));
     vkGetAccelerationStructureDeviceAddressKHR = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(_device, "vkGetAccelerationStructureDeviceAddressKHR"));
     //vkCmdTraceRaysKHR = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(_device, "vkCmdTraceRaysKHR"));
-    VulkanRenderer::LoadRaytracingFunctionPointer();
+    //VulkanRenderer::LoadRaytracingFunctionPointer();
     vkGetRayTracingShaderGroupHandlesKHR = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(_device, "vkGetRayTracingShaderGroupHandlesKHR"));
     vkCreateRayTracingPipelinesKHR = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(vkGetDeviceProcAddr(_device, "vkCreateRayTracingPipelinesKHR"));
 
@@ -1041,14 +1041,14 @@ void VulkanBackEnd::InitRayTracing() {
     //AssetManager::CreateMeshBLAS();
 
     std::vector<VkDescriptorSetLayout> rtDescriptorSetLayouts = {
-        VulkanRenderer::GetDynamicDescriptorSet().layout,
-        VulkanRenderer::GetAllTexturesDescriptorSet().layout,
-        VulkanRenderer::GetRenderTargetsDescriptorSet().layout,
-        VulkanRenderer::GetRaytracingDescriptorSet().layout
+        //VulkanRenderer::GetDynamicDescriptorSet().layout,
+        //VulkanRenderer::GetAllTexturesDescriptorSet().layout,
+        //VulkanRenderer::GetRenderTargetsDescriptorSet().layout,
+        //VulkanRenderer::GetRaytracingDescriptorSet().layout
     };
 
-    VulkanRenderer::GetRaytracer().CreateRaytracingPipeline(_device, rtDescriptorSetLayouts, 1);
-    VulkanRenderer::GetRaytracer().CreateShaderBindingTable(_device, _allocator, _rayTracingPipelineProperties);
+    //VulkanRenderer::GetRaytracer().CreateRaytracingPipeline(_device, rtDescriptorSetLayouts, 1);
+    //VulkanRenderer::GetRaytracer().CreateShaderBindingTable(_device, _allocator, _rayTracingPipelineProperties);
 
     std::cout << "init raytracing\n";
 }
@@ -1064,29 +1064,29 @@ VkTransformMatrixKHR GlmMat4ToVkTransformMatrix(glm::mat4 matrix) {
     return vkTransformMatrix;
 }
 
-std::vector<VkAccelerationStructureInstanceKHR> VulkanBackEnd::CreateTLASInstancesFromRenderItems(std::vector<RenderItem3D>& renderItems) {
-
-    int instanceCustomIndex = 0;
-    std::vector<VkAccelerationStructureInstanceKHR> instances;
-    for (RenderItem3D& renderItem : renderItems) {
-
-        // Replace this with a bit flag maybe? cause castShadow is not even what this checking here.
-        if (!renderItem.castShadow) {
-            continue;
-        }
-
-        Mesh* mesh = AssetManager::GetMeshByIndex(renderItem.meshIndex);
-        VkAccelerationStructureInstanceKHR& instance = instances.emplace_back(VkAccelerationStructureInstanceKHR());
-        instance.transform = GlmMat4ToVkTransformMatrix(renderItem.modelMatrix);
-        instance.instanceCustomIndex = instanceCustomIndex;
-        instance.mask = 0xFF;
-        instance.instanceShaderBindingTableRecordOffset = 0;
-        instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FRONT_COUNTERCLOCKWISE_BIT_KHR;
-        instance.accelerationStructureReference = mesh->accelerationStructure.deviceAddress;
-        instanceCustomIndex++;
-    }
-    return instances;
-}
+//std::vector<VkAccelerationStructureInstanceKHR> VulkanBackEnd::CreateTLASInstancesFromRenderItems(std::vector<RenderItem3D>& renderItems) {
+//
+//    int instanceCustomIndex = 0;
+//    std::vector<VkAccelerationStructureInstanceKHR> instances;
+//    for (RenderItem3D& renderItem : renderItems) {
+//
+//        // Replace this with a bit flag maybe? cause castShadow is not even what this checking here.
+//        if (!renderItem.castShadow) {
+//            continue;
+//        }
+//
+//        Mesh* mesh = AssetManager::GetMeshByIndex(renderItem.meshIndex);
+//        VkAccelerationStructureInstanceKHR& instance = instances.emplace_back(VkAccelerationStructureInstanceKHR());
+//        instance.transform = GlmMat4ToVkTransformMatrix(renderItem.modelMatrix);
+//        instance.instanceCustomIndex = instanceCustomIndex;
+//        instance.mask = 0xFF;
+//        instance.instanceShaderBindingTableRecordOffset = 0;
+//        instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FRONT_COUNTERCLOCKWISE_BIT_KHR;
+//        instance.accelerationStructureReference = mesh->accelerationStructure.deviceAddress;
+//        instanceCustomIndex++;
+//    }
+//    return instances;
+//}
 
 void VulkanBackEnd::CreateTopLevelAccelerationStructure(std::vector<VkAccelerationStructureInstanceKHR> instances, AccelerationStructure& outTLAS) {
 

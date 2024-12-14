@@ -1,5 +1,5 @@
 #pragma once
-#include <vulkan/vulkan.h>
+#include <vulkan.h>
 #include "VK_Buffer.hpp"
 #include "VK_Raytracing.hpp"
 

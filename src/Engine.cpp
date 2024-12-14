@@ -1,7 +1,6 @@
 #include "Engine.h"
 #include "Backend/BackEnd.h"
 
-#include <iostream>
 void Engine::Run()
 {
     BackEnd::Init();
@@ -11,7 +10,6 @@ void Engine::Run()
         BackEnd::BeginFrame();
         BackEnd::UpdateSubSystems();
 
-       
 
        
         

@@ -1,11 +1,11 @@
 #pragma once
 #include <GLFW/glfw3.h>
+#include "../Core/Enums.hpp"
 
 
 
 namespace BackEnd {
 
-    enum class WindowedMode { WINDOWED, FULLSCREEN };
     // Core
     void Init();
     void BeginFrame();

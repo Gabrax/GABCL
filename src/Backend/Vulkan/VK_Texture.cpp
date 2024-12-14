@@ -1,6 +1,6 @@
 #include "VK_Texture.h"
-#include "../../../API/Vulkan/VK_assetManager.h"
-#include "../../../Util.hpp"
+//#include "../../../API/Vulkan/VK_assetManager.h"
+//#include "../../../Util.hpp"
 
 int VulkanTexture::GetWidth() {
     return width;
@@ -42,35 +42,35 @@ void VulkanTexture::InsertImageBarrier(VkCommandBuffer cmdbuffer, VkImageLayout 
     currentStageFlags = dstStageMask;
 }
 
-void VulkanTexture::Load(std::string_view filepath) {
+//void VulkanTexture::Load(std::string_view filepath) {
+//
+//    FileInfo info = Util::GetFileInfo(std::string(filepath));
+//    filename = info.filename;
+//    filepath = info.fullpath;
+//
+//    // Create compressed version if it doesn't exist
+//    std::string assetPath = "res/assets_vulkan/" + info.filename + ".tex";
+//    if (!std::filesystem::exists(assetPath)) {
+//        VulkanAssetManager::ConvertImage(info.fullpath, assetPath);
+//        std::cout << "compressed " << assetPath << "\n";
+//    }
+//
+//    // Image format
+//    if (info.materialType == "ALB") {
+//        format = VK_FORMAT_R8G8B8A8_UNORM;
+//    }
+//    else {
+//        format = VK_FORMAT_R8G8B8A8_UNORM; // VK_FORMAT_R8G8B8A8_SRGB;
+//    }
+//
+//    // Load compressed file
+//    VulkanAssetManager::LoadBinaryFile(assetPath.c_str(), m_assetFile);
+//    //std::cout << info.filename << " " << assetFile.binaryBlob.size() << " bytes\n";
+//
+//}
 
-    FileInfo info = Util::GetFileInfo(std::string(filepath));
-    filename = info.filename;
-    filepath = info.fullpath;
-
-    // Create compressed version if it doesn't exist
-    std::string assetPath = "res/assets_vulkan/" + info.filename + ".tex";
-    if (!std::filesystem::exists(assetPath)) {
-        VulkanAssetManager::ConvertImage(info.fullpath, assetPath);
-        std::cout << "compressed " << assetPath << "\n";
-    }
-
-    // Image format
-    if (info.materialType == "ALB") {
-        format = VK_FORMAT_R8G8B8A8_UNORM;
-    }
-    else {
-        format = VK_FORMAT_R8G8B8A8_UNORM; // VK_FORMAT_R8G8B8A8_SRGB;
-    }
-
-    // Load compressed file
-    VulkanAssetManager::LoadBinaryFile(assetPath.c_str(), m_assetFile);
-    //std::cout << info.filename << " " << assetFile.binaryBlob.size() << " bytes\n";
-
-}
-
-void VulkanTexture::Bake() {
-    // Feed data to Vulkan
-    bool generateMips = false;
-    VulkanAssetManager::FeedTextureToGPU(this, &m_assetFile, generateMips);
-}
+//void VulkanTexture::Bake() {
+//    // Feed data to Vulkan
+//    bool generateMips = false;
+//    VulkanAssetManager::FeedTextureToGPU(this, &m_assetFile, generateMips);
+//}

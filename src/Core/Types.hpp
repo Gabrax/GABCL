@@ -100,7 +100,7 @@ struct UIRenderInfo {
     glm::mat4 modelMatrix = glm::mat4(1);
     glm::vec3 color = WHITE;
     bool centered = false;
-    GLuint target = GL_TEXTURE_2D;
+    //GLuint target = GL_TEXTURE_2D;
     void* parent = nullptr;
 };
 
@@ -244,6 +244,6 @@ struct CompressedTextureData {
     int height = 0;
     int size = 0;
     void* data = nullptr;
-    gli::target target = gli::TARGET_2D;
-    GLenum format = 0;
+    //gli::target target = gli::TARGET_2D;
+    //GLenum format = 0;
 };

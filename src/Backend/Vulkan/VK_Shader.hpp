@@ -1,10 +1,10 @@
 #pragma once
-#include "Vulkan/vulkan.h"
+#include <vulkan.h>
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <iostream>
-#include "shaderc/shaderc.hpp"
+#include "shaderc.hpp"
 
 namespace VulkanShaderUtil {
     inline bool LoadShader(VkDevice device, std::string filePath, VkShaderStageFlagBits flag, VkShaderModule* outShaderModule);
