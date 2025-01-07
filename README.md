@@ -1,6 +1,8 @@
-3D Vulkan engine with C++ for learning purposes 
+<p align="center"> 3D Vulkan engine with C++ for learning purposes </p>
 
 ## Getting started
+> [!WARNING]
+> To run this project, CMake and VulkanSDK needs to be installed <br>
 
 - Windows <br><br>
   Visual Studio 2022 is recommended. CMakeSettings.json makes configuring cmake with VS easier without generating .sln file (Ninja generator is recommended).
@@ -10,12 +12,11 @@
 ```bash
 sh build.sh
 ```
-> [!WARNING]
-> Only build this project through the scripts, project is setup to move exe to root directory to link normally with assets
 
 ## 👨‍💻 Tech stack
 - [GLFW](https://github.com/glfw/glfw)
 - [Vulkan](https://www.vulkan.org)
+- [vk-bootstrap](https://github.com/charles-lunarg/vk-bootstrap)
 - [ShaderC](https://github.com/google/shaderc?tab=readme-ov-file)
 - [GLM](https://github.com/g-truc/glm)
 - [ImGUI](https://github.com/ocornut/imgui)
