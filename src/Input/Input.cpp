@@ -1,5 +1,4 @@
 #include "Input.h"
-#include "../BackEnd/BackEnd.h"
 
 namespace Input {
 
@@ -30,25 +29,25 @@ namespace Input {
 
     void Init() {
 
-        double x, y;
-        _window = BackEnd::GetWindowPtr();
-        glfwSetScrollCallback(_window, scroll_callback);
-        glfwGetCursorPos(_window, &x, &y);
-        DisableCursor();
-        _mouseOffsetX = x;
-        _mouseOffsetY = y;
-        _mouseX = x;
-        _mouseY = y;
+        /*double x, y;*/
+        /*_window = BackEnd::GetWindowPtr();*/
+        /*glfwSetScrollCallback(_window, scroll_callback);*/
+        /*glfwGetCursorPos(_window, &x, &y);*/
+        /*DisableCursor();*/
+        /*_mouseOffsetX = x;*/
+        /*_mouseOffsetY = y;*/
+        /*_mouseX = x;*/
+        /*_mouseY = y;*/
     }
 
     void Update() {
 
-        if (KeyPressed(KEY_ESCAPE)) {
-            BackEnd::ForceCloseWindow();
-        }
-        if (KeyPressed(KEY_F)) {
-            BackEnd::ToggleFullscreen();
-        }
+        /*if (KeyPressed(KEY_ESCAPE)) {*/
+        /*    BackEnd::ForceCloseWindow();*/
+        /*}*/
+        /*if (KeyPressed(KEY_F)) {*/
+        /*    BackEnd::ToggleFullscreen();*/
+        /*}*/
         /*if (KeyPressed(HELL_KEY_H)) {
             Renderer::HotloadShaders();
         }*/
