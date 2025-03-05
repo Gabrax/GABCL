@@ -1,3 +1,7 @@
+<p align="center">
+    <img src="https://github.com/user-attachments/assets/67964b72-3a22-4b0b-a312-9c61d0b75e24" alt="GABVklogo" width="200"/>
+</p>
+
 <p align="center"> 3D Vulkan engine with C++ for learning purposes </p>
 
 ## Getting started
@@ -5,7 +9,7 @@
 > To run this project, CMake and VulkanSDK needs to be installed <br>
 
 - Windows <br><br>
-  Visual Studio 2022 is recommended. CMakeSettings.json makes configuring cmake with VS easier without generating .sln file (Ninja generator is recommended).
+  Visual Studio is recommended. CMakeSettings.json configures project for VS (Ninja generator is recommended - MSBuild not tested).
   In repository directory click right mouse button and open with VS, or open terminal and type ```start devenv . ```
 
 - Linux & MacOS
