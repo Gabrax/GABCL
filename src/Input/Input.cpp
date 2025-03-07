@@ -1,4 +1,5 @@
 #include "Input.h"
+/*#include "../Window.h"*/
 
 namespace Input {
 
@@ -30,7 +31,7 @@ namespace Input {
     void Init() {
 
         /*double x, y;*/
-        /*_window = BackEnd::GetWindowPtr();*/
+        /*_window = Window::GetWindowPtr();*/
         /*glfwSetScrollCallback(_window, scroll_callback);*/
         /*glfwGetCursorPos(_window, &x, &y);*/
         /*DisableCursor();*/
@@ -43,7 +44,7 @@ namespace Input {
     void Update() {
 
         /*if (KeyPressed(KEY_ESCAPE)) {*/
-        /*    BackEnd::ForceCloseWindow();*/
+        /*    Window::ForceCloseWindow();*/
         /*}*/
         /*if (KeyPressed(KEY_F)) {*/
         /*    BackEnd::ToggleFullscreen();*/
