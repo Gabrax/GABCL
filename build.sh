@@ -1,7 +1,7 @@
 #!/bin/bash
 
 OS=$(uname)
-EXE_NAME="vk_engine"
+EXE_NAME="GABAMI"
 EXE_EXTENSION=""
 EXE_PATH="$EXE_NAME$EXE_EXTENSION"
 
@@ -10,97 +10,127 @@ GREEN="\e[32m"
 YELLOW="\e[33m"
 RESET="\e[0m"
 
-# Set the compiler based on the argument
-COMPILER=$1
-RELEASE_MODE=false
+COMPILER=""
+BUILD_TYPE="Release"
 
-if [[ "$2" == "release" ]]; then
-    RELEASE_MODE=true
-fi
+for arg in "$@"; do
+    case "$arg" in
+        -CMSVC|-Cmsvc|-cmsvc) COMPILER="msvc" ;;
+        -CGCC|-Cgcc|-cgcc) COMPILER="gcc" ;;
+        -CCLANG|-Cclang|-cclang) COMPILER="clang" ;;
+        -Ccl|-CCL|-ccl) COMPILER="cl" ;;
+        -DRELEASE|-Drelease|-drelease) BUILD_TYPE="Release" ;;
+        -DDEBUG|-Ddebug|-ddebug) BUILD_TYPE="RelWithDebInfo" ;;
+        --help|-h)
+            echo -e "${YELLOW}Usage:${RESET} ./build.sh [options]"
+            echo -e "\n${YELLOW}Options:${RESET}"
+            echo -e "  -C{gcc|clang|msvc|cl}  Choose compiler"
+            echo -e "  -D{debug|release}      Choose build mode"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}[!] Unknown argument: $arg${RESET}"
+            ;;
+    esac
+done
 
+# OS detection
 if [[ "$OS" == "Linux" || "$OS" == "Darwin" ]]; then
-    # Linux or macOS
     EXE_EXTENSION=""
-    FIND_CMD="find . -type f -name \"$EXE_NAME\" -print -quit"
     echo -e "${YELLOW}[*] Running on Linux or macOS${RESET}"
-elif [[ "$OS" == "MINGW"* || "$OS" == "CYGWIN"* || "$OS" == "MSYS"* ]]; then
-    # Windows (using Git Bash or similar)
+elif [[ "$OS" == MINGW* || "$OS" == CYGWIN* || "$OS" == MSYS* ]]; then
     EXE_EXTENSION=".exe"
-    FIND_CMD="find . -type f -name \"$EXE_NAME$EXE_EXTENSION\" -print -quit"
     echo -e "${YELLOW}[*] Running on Windows${RESET}"
 else
     echo -e "${RED}Unsupported OS: $OS${RESET}"
     exit 1
 fi
 
+EXE_PATH="$EXE_NAME$EXE_EXTENSION"
 BUILD_DIR="build"
 ROOT_DIR=$(pwd)
 
-# Check if build directory exists
-if [ -d "$BUILD_DIR" ]; then
-    echo -e "${GREEN}[*] Build directory exists${RESET}"
-else
-    echo -e "${YELLOW}[*] Build directory does not exist. Creating it now...${RESET}"
-    mkdir -p "$BUILD_DIR"
-fi
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR" || { echo -e "${RED}[*] Failed to enter build directory${RESET}"; exit 1; }
 
-cd "$BUILD_DIR" || { echo -e "${RED}[*] Failed to navigate to build directory${RESET}"; exit 1; }
-
-# Check if project is already configured
-if [ -f "CMakeCache.txt" ]; then
-    echo -e "${GREEN}[*] Project is already configured${RESET}"
-else
-    echo -e "${YELLOW}[*] Configuring the project with CMake...${RESET}"
-    
-    CMAKE_ARGS=""
-    if $RELEASE_MODE; then
-        CMAKE_ARGS="-DRELEASE=ON"
-    fi
-
-    # If no compiler is specified, run cmake with the default system compiler
-    if [ -z "$COMPILER" ]; then
-        cmake .. $CMAKE_ARGS || { echo -e "${RED}[*] CMake configuration failed${RESET}"; exit 1; }
-    elif [ "$COMPILER" == "msvc" ]; then
-        echo -e "${YELLOW}[*] Using MSVC Compiler${RESET}"
-        cmake -G "Visual Studio 17 2022" -G "Ninja" .. $CMAKE_ARGS || { echo -e "${RED}[*] CMake configuration failed${RESET}"; exit 1; }
-    elif [ "$COMPILER" == "clang" ]; then
-        echo -e "${YELLOW}[*] Using Clang Compiler${RESET}"
-        cmake -G "Ninja" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ $CMAKE_ARGS -Wno-dev .. || { echo -e "${RED}[*] CMake configuration failed${RESET}"; exit 1; }
-    elif [ "$COMPILER" == "gcc" ]; then
-        echo -e "${YELLOW}[*] Using GCC Compiler${RESET}"
-        cmake -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ $CMAKE_ARGS -Wno-dev .. || { echo -e "${RED}[*] CMake configuration failed${RESET}"; exit 1; }
-    else
-        echo -e "${RED}[*] Unsupported compiler: $COMPILER${RESET}"
-        exit 1
+# If previous config used a different build type, force reconfigure
+RECONFIGURE=false
+if [[ -f "CMakeCache.txt" ]]; then
+    PREV_TYPE=$(grep CMAKE_BUILD_TYPE CMakeCache.txt | cut -d= -f2)
+    if [[ "$PREV_TYPE" != "$BUILD_TYPE" ]]; then
+        echo -e "${YELLOW}[*] Switching build type from $PREV_TYPE to $BUILD_TYPE...${RESET}"
+        RECONFIGURE=true
     fi
 fi
 
-# Build the project
-echo -e "${YELLOW}[*] Building the project...${RESET}"
-cmake --build . --config Release || { echo -e "${RED}[*] Build failed${RESET}"; exit 1; }
-echo -e "${GREEN}[*] Build completed successfully${RESET}"
+# Configure the project
+if [[ "$RECONFIGURE" == true || ! -f "CMakeCache.txt" ]]; then
+    echo -e "${YELLOW}[*] Configuring project with CMake ($BUILD_TYPE)...${RESET}"
+    rm -f CMakeCache.txt
 
-# Search for the executable in the build directory
-echo -e "${YELLOW}[*] Searching for $EXE_PATH in the build directory...${RESET}"
-if mygame_path=$(eval "$FIND_CMD"); then
-    echo -e "${GREEN}[*] Executable $EXE_PATH found at: $mygame_path${RESET}"
-    
-    # Check if the executable is already in the root directory
-    if [ "$mygame_path" != "$ROOT_DIR/$EXE_PATH" ]; then
-        # Move the executable to the root directory
-        echo -e "${YELLOW}[*] Moving $EXE_PATH to the root directory...${RESET}"
-        mv "$mygame_path" "$ROOT_DIR" || { echo -e "${RED}[*] Failed to move $EXE_PATH${RESET}"; exit 1; }
-    else
-        echo -e "${GREEN}[*] $EXE_PATH is already in the root directory${RESET}"
-    fi
+    CMAKE_ARGS="-DCMAKE_BUILD_TYPE=$BUILD_TYPE"
 
-    cd "$ROOT_DIR"
-
-    # Run the executable from the root directory
-    echo -e "${YELLOW}[*] Running $EXE_PATH${RESET}"
-    (cd "$ROOT_DIR" && "./$EXE_PATH") || { echo -e "${RED}[*] Failed to run $EXE_PATH${RESET}"; exit 1; }
+    case "$COMPILER" in
+        "")
+            cmake .. $CMAKE_ARGS || { echo -e "${RED}[*] CMake configuration failed${RESET}"; exit 1; }
+            ;;
+        cl)
+            cmake -G "Ninja" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DEXE_NAME=$EXE_NAME .. || exit 1
+            ;;
+        msvc)
+            cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DEXE_NAME=$EXE_NAME .. || exit 1
+            ;;
+        clang)
+            cmake -G "Ninja" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ $CMAKE_ARGS -Wno-dev -DEXE_NAME=$EXE_NAME .. || exit 1
+            ;;
+        gcc)
+            cmake -G "Unix Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ $CMAKE_ARGS -Wno-dev -DEXE_NAME=$EXE_NAME .. || exit 1
+            ;;
+        *)
+            echo -e "${RED}[*] Unsupported compiler: $COMPILER${RESET}"
+            exit 1
+            ;;
+    esac
 else
+    echo -e "${GREEN}[*] Project already configured for $BUILD_TYPE${RESET}"
+fi
+
+# Build
+echo -e "${YELLOW}[*] Building ($BUILD_TYPE)...${RESET}"
+cmake --build . --config "$BUILD_TYPE" || { echo -e "${RED}[*] Build failed${RESET}"; exit 1; }
+
+# Find executable
+echo -e "${YELLOW}[*] Looking for $EXE_PATH...${RESET}"
+FOUND_EXE=$(find . -type f -name "$EXE_PATH" | head -n 1)
+
+if [[ -z "$FOUND_EXE" ]]; then
     echo -e "${RED}[*] Executable $EXE_PATH not found${RESET}"
+    exit 1
 fi
 
+# Move to root if not already
+if [[ "$ROOT_DIR/$EXE_PATH" != "$FOUND_EXE" ]]; then
+    echo -e "${YELLOW}[*] Moving executable to root...${RESET}"
+    mv "$FOUND_EXE" "$ROOT_DIR/$EXE_PATH" || { echo -e "${RED}[*] Failed to move $EXE_PATH${RESET}"; exit 1; }
+fi
 
+if [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
+    PDB_FILE_NAME="${EXE_NAME}.pdb"
+    echo -e "${YELLOW}[*] Looking for debug symbols: $PDB_FILE_NAME...${RESET}"
+    FOUND_PDB=$(find . -type f -name "$PDB_FILE_NAME" | head -n 1)
+
+    if [[ -n "$FOUND_PDB" ]]; then
+        if [[ "$ROOT_DIR/$PDB_FILE_NAME" != "$FOUND_PDB" ]]; then
+            echo -e "${YELLOW}[*] Moving $PDB_FILE_NAME to root...${RESET}"
+            mv "$FOUND_PDB" "$ROOT_DIR/$PDB_FILE_NAME" || { echo -e "${RED}[*] Failed to move $PDB_FILE_NAME${RESET}"; exit 1; }
+        else
+            echo -e "${GREEN}[*] $PDB_FILE_NAME is already in the root directory${RESET}"
+        fi
+    else
+        echo -e "${YELLOW}[*] No PDB file found (not generated or already moved)${RESET}"
+    fi
+fi
+
+cd "$ROOT_DIR"
+echo -e "${GREEN}[*] Build completed. Running ./$EXE_PATH${RESET}"
+"./$EXE_PATH"
