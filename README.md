@@ -1,12 +1,12 @@
-<p align="center">
-    # Animated Model Importer
-</p>
+<p align="center"> Animated Model Importer </p>
 
 ## Getting started
 > [!WARNING]
 > Dependencies: CMake, C++20 <br>
 
-```curl -O https://raw.githubusercontent.com/Gabrax/GABBS/refs/heads/main/build.sh```
+```bash
+curl -O https://raw.githubusercontent.com/Gabrax/GABBS/refs/heads/main/build.sh
+```
 
 For general build script info run ```sh build.sh --help```
 

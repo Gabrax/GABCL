@@ -325,8 +325,8 @@ void ModelManager::BakeModel(const std::string& path, const std::shared_ptr<Mode
 
     for(auto& tex : mesh.m_Textures) tex->ClearRawData();
 
-    if(model->GetPhysXMeshType() == MeshType::TRIANGLEMESH) model->CreatePhysXStaticMesh(mesh.m_Vertices, mesh.m_Indices);
-    else if(model->GetPhysXMeshType() == MeshType::CONVEXMESH) model->CreatePhysXDynamicMesh(mesh.m_Vertices);
+    /*if(model->GetPhysXMeshType() == MeshType::TRIANGLEMESH) model->CreatePhysXStaticMesh(mesh.m_Vertices, mesh.m_Indices);*/
+    /*else if(model->GetPhysXMeshType() == MeshType::CONVEXMESH) model->CreatePhysXDynamicMesh(mesh.m_Vertices);*/
   }
 
   model->m_Name = name;
@@ -347,15 +347,9 @@ void ModelManager::SetInitialControllerTransform(const std::string& name, const 
 
   std::shared_ptr<Model> model = it->second;
 
-  if(model->GetPhysXMeshType() != MeshType::CONTROLLER)
-  {
-    GABGL_ERROR("This function is for Controller model!");
-    return;
-  }
-
   model->m_ControllerTransform = transform;
 
-  model->CreateCharacterController(PhysX::GlmVec3ToPxVec3(model->m_ControllerTransform.GetPosition()), radius, height, slopeLimit);
+  /*model->CreateCharacterController(PhysX::GlmVec3ToPxVec3(model->m_ControllerTransform.GetPosition()), radius, height, slopeLimit);*/
 
   // Find index in the names vector
   auto vecIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), name);
@@ -380,120 +374,114 @@ void ModelManager::SetInitialModelTransform(const std::string& name, const glm::
 
   const auto& model = it->second;
 
-  if(model->GetPhysXMeshType() == MeshType::CONTROLLER)
-  {
-    GABGL_ERROR("This function is for non Controller model!");
-    return;
-  }
-
   std::string convexName = name + "_convex";
 
   auto convexIt = s_Data.m_Models.find(convexName);
-  if (convexIt != s_Data.m_Models.end())
-  {
-    GABGL_WARN("Convex version '{}' found for model '{}'. Applying same transform.", convexName, name);
-
-    const auto& convex = convexIt->second;
-
-    PxTransform pxTransform = PxTransform(PhysX::GlmMat4ToPxTransform(transform));
-
-    if(convex->GetPhysXMeshType() == MeshType::TRIANGLEMESH) convex->m_StaticMeshActor->setGlobalPose(pxTransform);
-    else if(convex->GetPhysXMeshType() == MeshType::CONVEXMESH)
-    {
-      if (convex->m_isKinematic) convex->m_DynamicMeshActor->setKinematicTarget(pxTransform);
-      else convex->m_DynamicMeshActor->setGlobalPose(pxTransform);
-    }
-
-    glm::mat4 convexTransform = PhysX::PxMat44ToGlmMat4(convexIt->second->GetDynamicActor()->getGlobalPose());
-
-    pxTransform = PxTransform(PhysX::GlmMat4ToPxTransform(convexTransform));
-
-    if(model->GetPhysXMeshType() == MeshType::TRIANGLEMESH) model->m_StaticMeshActor->setGlobalPose(pxTransform);
-    else if(model->GetPhysXMeshType() == MeshType::CONVEXMESH)
-    {
-      if (model->m_isKinematic) model->m_DynamicMeshActor->setKinematicTarget(pxTransform);
-      else model->m_DynamicMeshActor->setGlobalPose(pxTransform);
-    }
-
-    auto vec2It = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), name);
-    if (vec2It != s_Data.m_ModelsNames.end())
-    {
-      int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), vec2It));
-      s_Data.m_ModelsTransforms->SetSubData(ssboIndex * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(convexTransform));
-    }
-    else
-    {
-      GABGL_WARN("Main model '{}' not found in name list for SSBO!", name);
-    }
-  }
-  else
-  {
-    // No convex model, fallback to normal update
-    auto vecIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), name);
-    if (vecIt == s_Data.m_ModelsNames.end())
-    {
-      GABGL_WARN("Model '{}' not found in name list for SSBO!", name);
-      return;
-    }
-
-    int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), vecIt));
-    s_Data.m_ModelsTransforms->SetSubData(ssboIndex * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(transform));
-  }
-}
-
-void ModelManager::UpdateTransforms(const DeltaTime& dt)
-{
-  for (const auto& [key, model] : s_Data.m_Models)
-  {
-    if(model->IsAnimated() && model->m_IsRendered)
-    { 
-      auto& transforms = model->GetFinalBoneMatrices();
-
-      auto nameIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), key);
-      if (nameIt != s_Data.m_ModelsNames.end())
-      {
-        int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), nameIt));
-        size_t offset = ssboIndex * MAX_BONES * sizeof(glm::mat4); // assuming MAX_BONES is defined
-        size_t size = transforms.size() * sizeof(glm::mat4);
-
-        s_Data.m_FinalBoneMatricesSSBO->SetSubData(offset, size, transforms.data());
-        model->UpdateAnimation(dt);
-      }
-      else
-      {
-        GABGL_WARN("Animated model '{}' not found in name list for bone SSBO!", key);
-      }
-    }
-
-    const std::string& convexName = key;
-    constexpr const char* suffix = "_convex";
-    if (convexName.size() < 7 || convexName.compare(convexName.size() - 7, 7, suffix) != 0) continue;
-
-    std::string baseName = convexName.substr(0, convexName.size() - 7);
-
-    auto baseModelIt = s_Data.m_Models.find(baseName);
-    if (baseModelIt == s_Data.m_Models.end())
-    {
-      GABGL_WARN("Base model '{}' not found for convex '{}'", baseName, convexName);
-      continue;
-    }
-
-    if(baseModelIt->second->m_IsRendered)
-    {
-      glm::mat4 convexTransform = PhysX::PxMat44ToGlmMat4(model->GetDynamicActor()->getGlobalPose());
-
-      auto nameIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), baseName);
-      if (nameIt != s_Data.m_ModelsNames.end())
-      {
-        int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), nameIt));
-        s_Data.m_ModelsTransforms->SetSubData(ssboIndex * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(convexTransform));
-      }
-      else
-      {
-        GABGL_WARN("Base model '{}' not found in name list for SSBO!", baseName);
-      }
-    }
-  }
+/*  if (convexIt != s_Data.m_Models.end())*/
+/*  {*/
+/*    GABGL_WARN("Convex version '{}' found for model '{}'. Applying same transform.", convexName, name);*/
+/**/
+/*    const auto& convex = convexIt->second;*/
+/**/
+/*    PxTransform pxTransform = PxTransform(PhysX::GlmMat4ToPxTransform(transform));*/
+/**/
+/*    if(convex->GetPhysXMeshType() == MeshType::TRIANGLEMESH) convex->m_StaticMeshActor->setGlobalPose(pxTransform);*/
+/*    else if(convex->GetPhysXMeshType() == MeshType::CONVEXMESH)*/
+/*    {*/
+/*      if (convex->m_isKinematic) convex->m_DynamicMeshActor->setKinematicTarget(pxTransform);*/
+/*      else convex->m_DynamicMeshActor->setGlobalPose(pxTransform);*/
+/*    }*/
+/**/
+/*    glm::mat4 convexTransform = PhysX::PxMat44ToGlmMat4(convexIt->second->GetDynamicActor()->getGlobalPose());*/
+/**/
+/*    pxTransform = PxTransform(PhysX::GlmMat4ToPxTransform(convexTransform));*/
+/**/
+/*    if(model->GetPhysXMeshType() == MeshType::TRIANGLEMESH) model->m_StaticMeshActor->setGlobalPose(pxTransform);*/
+/*    else if(model->GetPhysXMeshType() == MeshType::CONVEXMESH)*/
+/*    {*/
+/*      if (model->m_isKinematic) model->m_DynamicMeshActor->setKinematicTarget(pxTransform);*/
+/*      else model->m_DynamicMeshActor->setGlobalPose(pxTransform);*/
+/*    }*/
+/**/
+/*    auto vec2It = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), name);*/
+/*    if (vec2It != s_Data.m_ModelsNames.end())*/
+/*    {*/
+/*      int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), vec2It));*/
+/*      s_Data.m_ModelsTransforms->SetSubData(ssboIndex * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(convexTransform));*/
+/*    }*/
+/*    else*/
+/*    {*/
+/*      GABGL_WARN("Main model '{}' not found in name list for SSBO!", name);*/
+/*    }*/
+/*  }*/
+/*  else*/
+/*  {*/
+/*    // No convex model, fallback to normal update*/
+/*    auto vecIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), name);*/
+/*    if (vecIt == s_Data.m_ModelsNames.end())*/
+/*    {*/
+/*      GABGL_WARN("Model '{}' not found in name list for SSBO!", name);*/
+/*      return;*/
+/*    }*/
+/**/
+/*    int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), vecIt));*/
+/*    s_Data.m_ModelsTransforms->SetSubData(ssboIndex * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(transform));*/
+/*  }*/
+/*}*/
+/**/
+/*void ModelManager::UpdateTransforms(const DeltaTime& dt)*/
+/*{*/
+/*  for (const auto& [key, model] : s_Data.m_Models)*/
+/*  {*/
+/*    if(model->IsAnimated() && model->m_IsRendered)*/
+/*    { */
+/*      auto& transforms = model->GetFinalBoneMatrices();*/
+/**/
+/*      auto nameIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), key);*/
+/*      if (nameIt != s_Data.m_ModelsNames.end())*/
+/*      {*/
+/*        int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), nameIt));*/
+/*        size_t offset = ssboIndex * MAX_BONES * sizeof(glm::mat4); // assuming MAX_BONES is defined*/
+/*        size_t size = transforms.size() * sizeof(glm::mat4);*/
+/**/
+/*        s_Data.m_FinalBoneMatricesSSBO->SetSubData(offset, size, transforms.data());*/
+/*        model->UpdateAnimation(dt);*/
+/*      }*/
+/*      else*/
+/*      {*/
+/*        GABGL_WARN("Animated model '{}' not found in name list for bone SSBO!", key);*/
+/*      }*/
+/*    }*/
+/**/
+/*    const std::string& convexName = key;*/
+/*    constexpr const char* suffix = "_convex";*/
+/*    if (convexName.size() < 7 || convexName.compare(convexName.size() - 7, 7, suffix) != 0) continue;*/
+/**/
+/*    std::string baseName = convexName.substr(0, convexName.size() - 7);*/
+/**/
+/*    auto baseModelIt = s_Data.m_Models.find(baseName);*/
+/*    if (baseModelIt == s_Data.m_Models.end())*/
+/*    {*/
+/*      GABGL_WARN("Base model '{}' not found for convex '{}'", baseName, convexName);*/
+/*      continue;*/
+/*    }*/
+/**/
+/*    if(baseModelIt->second->m_IsRendered)*/
+/*    {*/
+/*      glm::mat4 convexTransform = PhysX::PxMat44ToGlmMat4(model->GetDynamicActor()->getGlobalPose());*/
+/**/
+/*      auto nameIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), baseName);*/
+/*      if (nameIt != s_Data.m_ModelsNames.end())*/
+/*      {*/
+/*        int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), nameIt));*/
+/*        s_Data.m_ModelsTransforms->SetSubData(ssboIndex * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(convexTransform));*/
+/*      }*/
+/*      else*/
+/*      {*/
+/*        GABGL_WARN("Base model '{}' not found in name list for SSBO!", baseName);*/
+/*      }*/
+/*    }*/
+ /*}*/
 }
 
 void ModelManager::SetRender(const std::string& name, bool render)
@@ -657,76 +645,76 @@ void ModelManager::BakeModelInstancedBuffers(Mesh& mesh, const std::vector<Trans
 
 void ModelManager::MoveController(const std::string& name, const Movement& movement, float speed, const DeltaTime& dt)
 {
-  auto it = s_Data.m_Models.find(name);
-  if (it == s_Data.m_Models.end()) GABGL_ERROR("Model doesnt exist!");
-
-  auto vecIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), name);
-  if (vecIt == s_Data.m_ModelsNames.end())
-  {
-      GABGL_WARN("Model '{}' not found in name list for SSBO!", name);
-      return;
-  }
-
-  const auto& model = it->second;
-
-  if (model->GetPhysXMeshType() != MeshType::CONTROLLER)
-  {
-      GABGL_ERROR("This function is for Controller model!");
-      return;
-  }
-
-  // Constants
-  const float gravity = -9.81f;
-  const float damping = 0.9f;
-  const float jumpSpeed = 5.5f;
-
-  // Apply gravity
-  model->m_ControllerVelocity.y += gravity * dt;
-
-  // Horizontal movement
-  PxVec3 direction(0.0f);
-  switch (movement)
-  {
-      case Movement::FORWARD:  direction.z += 1.0f; break;
-      case Movement::BACKWARD: direction.z -= 1.0f; break;
-      case Movement::LEFT:     direction.x -= 1.0f; break;
-      case Movement::RIGHT:    direction.x += 1.0f; break;
-      default: break;
-  }
-
-  if (direction.magnitudeSquared() > 0.0f)
-  {
-      direction = direction.getNormalized();
-      model->m_ControllerVelocity.x = direction.x * speed;
-      model->m_ControllerVelocity.z = direction.z * speed;
-  }
-  else
-  {
-      // Apply damping when no input
-      model->m_ControllerVelocity.x *= damping;
-      model->m_ControllerVelocity.z *= damping;
-  }
-
-  // Move controller
-  PxVec3 displacement = model->m_ControllerVelocity * dt;
-  PxControllerCollisionFlags flags = model->GetController()->move(displacement, 0.001f, dt, PxControllerFilters());
-
-  // Ground check and vertical reset
-  if (flags.isSet(PxControllerCollisionFlag::eCOLLISION_DOWN))
-  {
-      model->m_ControllerVelocity.y = 0.0f;
-      model->m_ControllerIsGrounded = true;
-  }
-  else
-  {
-      model->m_ControllerIsGrounded = false;
-  }
-
-  PxExtendedVec3 footPos = model->GetController()->getFootPosition();
-  model->m_ControllerTransform.SetPosition(glm::vec3(footPos.x, footPos.y, footPos.z));
-
-  int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), vecIt));
-  s_Data.m_ModelsTransforms->SetSubData(ssboIndex * sizeof(glm::mat4),sizeof(glm::mat4),glm::value_ptr(model->m_ControllerTransform.GetTransform()));
+  /*auto it = s_Data.m_Models.find(name);*/
+  /*if (it == s_Data.m_Models.end()) GABGL_ERROR("Model doesnt exist!");*/
+  /**/
+  /*auto vecIt = std::find(s_Data.m_ModelsNames.begin(), s_Data.m_ModelsNames.end(), name);*/
+  /*if (vecIt == s_Data.m_ModelsNames.end())*/
+  /*{*/
+  /*    GABGL_WARN("Model '{}' not found in name list for SSBO!", name);*/
+  /*    return;*/
+  /*}*/
+  /**/
+  /*const auto& model = it->second;*/
+  /**/
+  /*if (model->GetPhysXMeshType() != MeshType::CONTROLLER)*/
+  /*{*/
+  /*    GABGL_ERROR("This function is for Controller model!");*/
+  /*    return;*/
+  /*}*/
+  /**/
+  /*// Constants*/
+  /*const float gravity = -9.81f;*/
+  /*const float damping = 0.9f;*/
+  /*const float jumpSpeed = 5.5f;*/
+  /**/
+  /*// Apply gravity*/
+  /*model->m_ControllerVelocity.y += gravity * dt;*/
+  /**/
+  /*// Horizontal movement*/
+  /*PxVec3 direction(0.0f);*/
+  /*switch (movement)*/
+  /*{*/
+  /*    case Movement::FORWARD:  direction.z += 1.0f; break;*/
+  /*    case Movement::BACKWARD: direction.z -= 1.0f; break;*/
+  /*    case Movement::LEFT:     direction.x -= 1.0f; break;*/
+  /*    case Movement::RIGHT:    direction.x += 1.0f; break;*/
+  /*    default: break;*/
+  /*}*/
+  /**/
+  /*if (direction.magnitudeSquared() > 0.0f)*/
+  /*{*/
+  /*    direction = direction.getNormalized();*/
+  /*    model->m_ControllerVelocity.x = direction.x * speed;*/
+  /*    model->m_ControllerVelocity.z = direction.z * speed;*/
+  /*}*/
+  /*else*/
+  /*{*/
+  /*    // Apply damping when no input*/
+  /*    model->m_ControllerVelocity.x *= damping;*/
+  /*    model->m_ControllerVelocity.z *= damping;*/
+  /*}*/
+  /**/
+  /*// Move controller*/
+  /*PxVec3 displacement = model->m_ControllerVelocity * dt;*/
+  /*PxControllerCollisionFlags flags = model->GetController()->move(displacement, 0.001f, dt, PxControllerFilters());*/
+  /**/
+  /*// Ground check and vertical reset*/
+  /*if (flags.isSet(PxControllerCollisionFlag::eCOLLISION_DOWN))*/
+  /*{*/
+  /*    model->m_ControllerVelocity.y = 0.0f;*/
+  /*    model->m_ControllerIsGrounded = true;*/
+  /*}*/
+  /*else*/
+  /*{*/
+  /*    model->m_ControllerIsGrounded = false;*/
+  /*}*/
+  /**/
+  /*PxExtendedVec3 footPos = model->GetController()->getFootPosition();*/
+  /*model->m_ControllerTransform.SetPosition(glm::vec3(footPos.x, footPos.y, footPos.z));*/
+  /**/
+  /*int ssboIndex = static_cast<int>(std::distance(s_Data.m_ModelsNames.begin(), vecIt));*/
+  /*s_Data.m_ModelsTransforms->SetSubData(ssboIndex * sizeof(glm::mat4),sizeof(glm::mat4),glm::value_ptr(model->m_ControllerTransform.GetTransform()));*/
 }
 
 std::shared_ptr<Model> ModelManager::GetModel(const std::string& name)
@@ -742,29 +730,29 @@ std::vector<glm::mat4> ModelManager::GetTransforms()
   std::vector<glm::mat4> transforms;
   transforms.reserve(s_Data.m_Models.size());
 
-  for (const auto& [key, model] : s_Data.m_Models)
-  {
-    if (model->GetPhysXMeshType() == MeshType::TRIANGLEMESH)
-    {
-        glm::mat4 mat = PhysX::PxMat44ToGlmMat4(model->GetStaticActor()->getGlobalPose());
-        transforms.push_back(mat);
-    }
-    else if (model->GetPhysXMeshType() == MeshType::CONVEXMESH)
-    {
-        glm::mat4 mat = PhysX::PxMat44ToGlmMat4(model->GetDynamicActor()->getGlobalPose());
-        transforms.push_back(mat);
-    }
-    else if (model->GetPhysXMeshType() == MeshType::CONTROLLER)
-    {
-        glm::mat4 mat = model->GetControllerTransform().GetTransform();
-        transforms.push_back(mat);
-    }
-  }
+  /*for (const auto& [key, model] : s_Data.m_Models)*/
+  /*{*/
+  /*  if (model->GetPhysXMeshType() == MeshType::TRIANGLEMESH)*/
+  /*  {*/
+  /*      glm::mat4 mat = PhysX::PxMat44ToGlmMat4(model->GetStaticActor()->getGlobalPose());*/
+  /*      transforms.push_back(mat);*/
+  /*  }*/
+  /*  else if (model->GetPhysXMeshType() == MeshType::CONVEXMESH)*/
+  /*  {*/
+  /*      glm::mat4 mat = PhysX::PxMat44ToGlmMat4(model->GetDynamicActor()->getGlobalPose());*/
+  /*      transforms.push_back(mat);*/
+  /*  }*/
+  /*  else if (model->GetPhysXMeshType() == MeshType::CONTROLLER)*/
+  /*  {*/
+  /*      glm::mat4 mat = model->GetControllerTransform().GetTransform();*/
+  /*      transforms.push_back(mat);*/
+  /*  }*/
+  /*}*/
 
   return transforms;
 }
 
-Model::Model(const char* path, float optimizerStrength, bool isAnimated, bool isKinematic, const MeshType& type) :  m_isKinematic(isKinematic), m_OptimizerStrength(optimizerStrength), m_isAnimated(isAnimated), m_meshType(type)
+Model::Model(const char* path, float optimizerStrength, bool isAnimated) : m_OptimizerStrength(optimizerStrength), m_isAnimated(isAnimated)
 {
   Timer timer;
 
@@ -940,90 +928,6 @@ void Model::OptimizeMesh(std::vector<Vertex>& m_Vertices, std::vector<GLuint>& m
 
   m_Indices = std::move(SimplifiedIndices);
   m_Vertices = std::move(OptVertices);
-}
-
-void Model::CreatePhysXStaticMesh(std::vector<Vertex>& m_Vertices, std::vector<GLuint>& m_Indices)
-{
-  std::vector<PxVec3> physxVertices(m_Vertices.size());
-  for (size_t i = 0; i < m_Vertices.size(); ++i) {
-      physxVertices[i] = PxVec3(
-          m_Vertices[i].Position.x,
-          m_Vertices[i].Position.y,
-          m_Vertices[i].Position.z
-      );
-  }
-
-  PxTriangleMesh* physxMesh = PhysX::CreateTriangleMesh(
-      static_cast<PxU32>(physxVertices.size()), physxVertices.data(),
-      static_cast<PxU32>(m_Indices.size() / 3), m_Indices.data()
-  );
-
-  if (!physxMesh) {
-      GABGL_ERROR("Failed to create PhysX triangle mesh");
-      return;
-  }
-
-  PxPhysics* physics = PhysX::getPhysics();
-  PxScene* scene = PhysX::getScene();
-  PxMaterial* material = PhysX::getMaterial();
-
-  PxTriangleMeshGeometry triGeom;
-  triGeom.triangleMesh = physxMesh;
-
-  PxTransform pose = PxTransform(PxVec3(0));
-  m_StaticMeshActor = physics->createRigidStatic(pose);
-
-  if (m_StaticMeshActor) {
-      PxShape* meshShape = PxRigidActorExt::createExclusiveShape(
-          *m_StaticMeshActor, triGeom, *material
-      );
-      scene->addActor(*m_StaticMeshActor);
-  }
-}
-
-void Model::CreatePhysXDynamicMesh(std::vector<Vertex>& m_Vertices)
-{
-  std::vector<PxVec3> physxVertices(m_Vertices.size());
-  for (size_t i = 0; i < m_Vertices.size(); ++i)
-  {
-      physxVertices[i] = PxVec3(m_Vertices[i].Position.x, m_Vertices[i].Position.y,m_Vertices[i].Position.z);
-  }
-
-  PxConvexMesh* convexMesh = PhysX::CreateConvexMesh(static_cast<PxU32>(physxVertices.size()), physxVertices.data());
-
-  if (!convexMesh) {
-      GABGL_ERROR("Failed to create PhysX convex mesh");
-      return;
-  }
-
-  PxPhysics* physics = PhysX::getPhysics();
-  PxScene* scene = PhysX::getScene();
-  PxMaterial* material = PhysX::getMaterial();
-
-  PxConvexMeshGeometry convexGeom;
-  convexGeom.convexMesh = convexMesh;
-  convexGeom.scale = PxMeshScale(PxVec3(1.0f)); // Optional scaling
-
-  PxTransform pose = PxTransform(PxVec3(0));
-  m_DynamicMeshActor = physics->createRigidDynamic(pose);
-
-  if (m_DynamicMeshActor)
-  {
-      PxShape* shape = PxRigidActorExt::createExclusiveShape(*m_DynamicMeshActor, convexGeom, *material);
-
-      material->setRestitution(0.0f);
-
-      if (m_isKinematic) m_DynamicMeshActor->setRigidBodyFlag(PxRigidBodyFlag::eKINEMATIC, true);
-
-      PxRigidBodyExt::setMassAndUpdateInertia(*m_DynamicMeshActor, 1.0f);
-
-      scene->addActor(*m_DynamicMeshActor);
-  }
-}
-
-void Model::CreateCharacterController(const PxVec3& position, float radius, float height, bool slopeLimit)
-{
-  m_ActorController = PhysX::CreateCharacterController(position, radius, height, slopeLimit);
 }
 
 void Model::ExtractBoneWeightForVertices(std::vector<Vertex>& vertices, aiMesh* mesh)
@@ -1381,17 +1285,15 @@ void Model::ReadMissingBones(const aiAnimation* animation)
   }
 }
 
-
-std::shared_ptr<Model> Model::CreateSTATIC(const char* path, float optimizerStrength, bool isKinematic, MeshType type)
+std::shared_ptr<Model> Model::CreateSTATIC(const char* path, float optimizerStrength)
 {
-	return std::make_shared<Model>(path,optimizerStrength,false,isKinematic,type);
+	return std::make_shared<Model>(path,optimizerStrength,false);
 }
 
-std::shared_ptr<Model> Model::CreateANIMATED(const char* path, float optimizerStrength, bool isKinematic, MeshType type)
+std::shared_ptr<Model> Model::CreateANIMATED(const char* path, float optimizerStrength)
 {
-	return std::make_shared<Model>(path,optimizerStrength,true,isKinematic,type);
+	return std::make_shared<Model>(path,optimizerStrength,true);
 }
-
 
 Bone::Bone(const std::string& name, int ID, const aiNodeAnim* channel) : m_Name(name), m_ID(ID), m_LocalTransform(1.0f)
 {

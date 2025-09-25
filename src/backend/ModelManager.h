@@ -16,7 +16,6 @@
 
 #include "Texture.h"
 #include "DeltaTime.hpp"
-#include "PhysX.h"
 #include "Transform.hpp"
 
 #define MAX_BONE_INFLUENCE 4
@@ -124,29 +123,18 @@ struct Mesh
   bool hasSpecularMap;
 };
 
-enum class MeshType : int32_t
-{
-  NONE = 0,
-  CONTROLLER = 1,
-  TRIANGLEMESH = 2,
-  CONVEXMESH = 3
-};
-
 struct Model
 {
-  Model(const char* path, float optimizerStrength, bool isAnimated, bool isKinematic, const MeshType& type);
+  Model(const char* path, float optimizerStrength, bool isAnimated);
 
-  static std::shared_ptr<Model> CreateSTATIC(const char* path, float optimizerStrength, bool isKinematic, MeshType type);
-  static std::shared_ptr<Model> CreateANIMATED(const char* path, float optimizerStrength, bool isKinematic, MeshType type);
+  static std::shared_ptr<Model> CreateSTATIC(const char* path, float optimizerStrength);
+  static std::shared_ptr<Model> CreateANIMATED(const char* path, float optimizerStrength);
 
   void UpdateAnimation(const DeltaTime& dt);
   void SetAnimationbyIndex(int animationIndex);
   void SetAnimationByName(const std::string& animationName);
   void StartBlendToAnimation(int32_t nextAnimationIndex, float blendDuration);
   bool IsInAnimation(int index) const;
-  void CreatePhysXStaticMesh(std::vector<Vertex>& m_Vertices, std::vector<GLuint>& m_Indices);
-  void CreatePhysXDynamicMesh(std::vector<Vertex>& m_Vertices);
-  void CreateCharacterController(const PxVec3& position, float radius, float height, bool slopeLimit);
 
   inline std::vector<Mesh>& GetMeshes() { return m_Meshes; }
   inline std::map<std::string,BoneInfo>& GetBoneInfoMap() { return m_BoneInfoMap; }
@@ -156,15 +144,9 @@ struct Model
   inline const AssimpNodeData& GetRootNode() { return m_RootNode; }
   inline bool IsAnimated() { return m_isAnimated; }
   inline const std::vector<glm::mat4>& GetFinalBoneMatrices() { return m_FinalBoneMatrices; }
-  inline const MeshType& GetPhysXMeshType() { return m_meshType; }
-  inline const PxRigidStatic* GetStaticActor() { return m_StaticMeshActor; }
-  inline const PxRigidDynamic* GetDynamicActor() { return m_DynamicMeshActor; }
-  inline PxController* GetController() { return m_ActorController; }
   inline Transform& GetControllerTransform() { return m_ControllerTransform; }
 
   Transform m_ControllerTransform;
-  PxVec3 m_ControllerPosition;
-  PxVec3 m_ControllerVelocity = PxVec3(0.0f);
   float m_ControllerRadius; 
   float m_ControllerHeight; 
   bool m_ControllerSlopeLimit;
@@ -202,14 +184,9 @@ struct Model
   float m_NextTime = 0.0f;
   float m_DeltaTime = 0.0f;
 
-  bool m_isKinematic;
   float m_OptimizerStrength;
   bool m_isAnimated;
   const aiScene* m_Scene;
-  PxRigidStatic* m_StaticMeshActor = nullptr;
-  PxRigidDynamic* m_DynamicMeshActor = nullptr;
-  PxController* m_ActorController = nullptr;
-  MeshType m_meshType;
 
 private:
 
