@@ -28,5 +28,9 @@ Mat4F mat4_scale(float sx, float sy, float sz);
 Mat4F mat4_rotate_x(float radians);
 Mat4F mat4_rotate_y(float radians);
 Mat4F mat4_rotate_z(float radians);
+Mat4F mat4_mul(Mat4F a, Mat4F b);
+Mat4F mat4_inverse_affine(Mat4F m);
+void mat4_apply(const Mat4F* m, float x, float y, float* outX, float* outY);
+Mat4F mat4_from_rows(const float row1[4], const float row2[4], const float row3[4], const float row4[4]);
 
 #endif // MATH_H 
