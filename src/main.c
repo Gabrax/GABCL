@@ -113,10 +113,12 @@ int main()
         DispatchMessage(&msg);
       }
 
-      if(GetAsyncKeyState(VK_LEFT)  & 0x8000) mat4_translate(&shapes[0].transform,(Vec3F){-2,0,0});
-      if(GetAsyncKeyState(VK_RIGHT) & 0x8000) mat4_translate(&shapes[0].transform,(Vec3F){2,0,0});
-      if(GetAsyncKeyState(VK_UP)    & 0x8000) mat4_translate(&shapes[0].transform,(Vec3F){0,2,0});
-      if(GetAsyncKeyState(VK_DOWN)  & 0x8000) mat4_translate(&shapes[0].transform,(Vec3F){0,-2,0});
+      camera_update(&window, &camera, 5.0f, 1.0f);
+
+      if(GetAsyncKeyState(VK_LEFT)  & 0x8000) mat4_translate(&shapes[0].transform,(Vec3F){-20,0,0});
+      if(GetAsyncKeyState(VK_RIGHT) & 0x8000) mat4_translate(&shapes[0].transform,(Vec3F){20,0,0});
+      if(GetAsyncKeyState(VK_UP)    & 0x8000) mat4_translate(&shapes[0].transform,(Vec3F){0,20,0});
+      if(GetAsyncKeyState(VK_DOWN)  & 0x8000) mat4_translate(&shapes[0].transform,(Vec3F){0,-20,0});
       if(GetAsyncKeyState('Q')      & 0x8000) mat4_rotate(&shapes[0].transform, -45.0f,(Vec3F){0,0,1});
       if(GetAsyncKeyState('E')      & 0x8000) mat4_rotate(&shapes[0].transform, 45.0f,(Vec3F){0,0,1});
 
@@ -128,6 +130,8 @@ int main()
       clEnqueueReadBuffer(q, bufPixels, CL_TRUE, 0, sizeof(unsigned int)*WIDTH*HEIGHT, pixels, 0, NULL, NULL);
 
       window_render(&window, pixels);
+
+      Sleep(16);
     }
 
 cleanup:

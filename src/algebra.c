@@ -26,12 +26,20 @@ float vec3_dot(Vec3F vec1, Vec3F vec2)
 {
   return (vec1.x * vec2.x) + (vec1.y * vec2.y) + (vec1.z * vec2.z);
 }
-Vec3F vec3_cross_product(Vec3F vec1, Vec3F vec2)
+Vec3F vec3_cross(Vec3F vec1, Vec3F vec2)
 {
   Vec3F res;
   res.x = vec1.y * vec2.z - vec1.z * vec2.y;
   res.y = vec1.z * vec2.x - vec1.x * vec2.z;
   res.z = vec1.x * vec2.y - vec1.y * vec2.x;
+  return res;
+}
+Vec3F vec3_scale(Vec3F vec, float scalar)
+{
+  Vec3F res;
+  res.x = vec.x * scalar;
+  res.y = vec.y * scalar;
+  res.z = vec.z * scalar;
   return res;
 }
 Vec3F vec3_normalize(Vec3F vec)
@@ -40,7 +48,21 @@ Vec3F vec3_normalize(Vec3F vec)
   if (len == 0.0f) return (Vec3F){0,0,0}; 
   return (Vec3F){ vec.x/len, vec.y/len, vec.z/len };
 }
-
+Vec4F mat4_mul_vec4(Mat4F mat, Vec4F vec)
+{
+  Vec4F res;
+  res.x = mat.x1 * vec.x + mat.x2 * vec.y + mat.x3 * vec.z + mat.x4 * vec.w;
+  res.y = mat.y1 * vec.x + mat.y2 * vec.y + mat.y3 * vec.z + mat.y4 * vec.w;
+  res.z = mat.z1 * vec.x + mat.z2 * vec.y + mat.z3 * vec.z + mat.z4 * vec.w;
+  res.w = mat.w1 * vec.x + mat.w2 * vec.y + mat.w3 * vec.z + mat.w4 * vec.w;
+  return res;
+}
+void vec4_to_NDC(Vec4F* vec)
+{
+  vec->x /= vec->w;
+  vec->y /= vec->w;
+  vec->z /= vec->w;
+}
 Mat4F mat4_identity()
 {
   Mat4F m = {
@@ -162,6 +184,53 @@ float mat4_det(Mat4F m)
       m.x3 * (m.y1*(m.z2*m.w4 - m.z4*m.w2) - m.y2*(m.z1*m.w4 - m.z4*m.w1) + m.y4*(m.z1*m.w2 - m.z2*m.w1)) -
       m.x4 * (m.y1*(m.z2*m.w3 - m.z3*m.w2) - m.y2*(m.z1*m.w3 - m.z3*m.w1) + m.y3*(m.z1*m.w2 - m.z2*m.w1));
   return det;
+}
+Mat4F mat4_look_at(Vec3F position, Vec3F target, Vec3F up)
+{
+  // --- Forward vector (camera direction, but OpenGL convention looks -Z) ---
+  Vec3F f = vec3_normalize(vec3_sub(target, position));   // target - eye
+  // --- Right vector ---
+  Vec3F r = vec3_normalize(vec3_cross(f, up));
+  // --- Recomputed up vector (to ensure orthogonality) ---
+  Vec3F u = vec3_cross(r, f);
+
+  Mat4F result = {
+      .x1 =  r.x, .x2 =  u.x, .x3 = -f.x, .x4 = 0,
+      .y1 =  r.y, .y2 =  u.y, .y3 = -f.y, .y4 = 0,
+      .z1 =  r.z, .z2 =  u.z, .z3 = -f.z, .z4 = 0,
+      .w1 = -vec3_dot(r, position),
+      .w2 = -vec3_dot(u, position),
+      .w3 =  vec3_dot(f, position),
+      .w4 = 1
+  };
+
+  return result;
+}
+Mat4F mat4_perspective(float fov, float aspect_ratio, float near_plane, float far_plane)
+{
+    float fovy = deg2rad(fov);
+    float f = 1.0f / tanf(fovy / 2.0f);
+
+    Mat4F result = {0};
+
+    result.x1 = f / aspect_ratio;
+    result.y2 = f;
+    result.z3 = (far_plane + near_plane) / (near_plane - far_plane);
+    result.z4 = (2.0f * far_plane * near_plane) / (near_plane - far_plane);
+    result.w3 = -1.0f;
+    result.w4 = 0.0f;
+
+    return result;
+}
+Mat4F mat4_ortho(float left, float right, float bottom, float top, float near_plane, float far_plane)
+{
+    Mat4F m = {
+        .x1 = 2.0f / (right - left),  .x2 = 0,                       .x3 = 0,                        .x4 = -(right + left) / (right - left),
+        .y1 = 0,                      .y2 = 2.0f / (top - bottom),   .y3 = 0,                        .y4 = -(top + bottom) / (top - bottom),
+        .z1 = 0,                      .z2 = 0,                       .z3 = -2.0f / (far_plane - near_plane), .z4 = -(far_plane + near_plane) / (far_plane - near_plane),
+        .w1 = 0,                      .w2 = 0,                       .w3 = 0,                        .w4 = 1.0f
+    };
+    return m;
 }
 Mat4F mat4_inverse_affine(Mat4F m)
 {

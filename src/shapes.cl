@@ -36,6 +36,7 @@ inline Mat4F mat4_inverse_affine(const Mat4F m) {
 typedef struct {
     int type;
     Mat4F transform;       
+    Mat4F mvp;       
     unsigned int color;
 } Shape;
 

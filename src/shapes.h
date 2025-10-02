@@ -11,21 +11,30 @@
 typedef struct {
     int type;
     Mat4F transform;       
+    Mat4F mvp;       
     unsigned int color;
 } Shape;
+
+void shape_update(Shape* shape);
 
 typedef struct {
   Vec3F point[3];
 } Triangle;
 
-static inline Triangle make_triangle(Vec3F a, Vec3F b, Vec3F c) {
+static inline Triangle make_triangle(Vec3F p1, Vec3F p2, Vec3F p3) {
     Triangle t;
-    t.point[0] = a;
-    t.point[1] = b;
-    t.point[2] = c;
+    t.point[0] = p1;
+    t.point[1] = p2;
+    t.point[2] = p3;
     return t;
 }
 
 typedef struct {
   Triangle* triangles;
 } Mesh;
+
+inline void mesh_free(Mesh* mesh)
+{
+  arrfree(mesh->triangles); 
+  mesh->triangles = NULL;   
+}
