@@ -13,4 +13,5 @@ For general build script info run ```sh build.sh --help```
 ## 👨‍💻 Tech stack
 - [OpenCL-SDK](https://github.com/KhronosGroup/OpenCL-SDK)
 - [Windows-SDK](https://developer.microsoft.com/pl-pl/windows/downloads/windows-sdk/)
+- [stb_ds](https://github.com/nothings/stb/blob/master/stb_ds.h)
 
