@@ -1,5 +1,6 @@
 #pragma once
 #include "algebra.h"
+#include "camera.h"
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
@@ -11,26 +12,30 @@
 typedef struct {
     int type;
     Mat4F transform;       
-    Mat4F mvp;       
     unsigned int color;
 } Shape;
 
-void shape_update(Shape* shape);
-
 typedef struct {
-  Vec3F point[3];
+    Vec4F vertex[3];     // model space vertices
+    Vec4F v_clip[3];    // clip space vertices
+    Mat4F transform;    // model transform
+    Mat4F mvp;          // Model-View-Projection matrix
+    unsigned int color;
 } Triangle;
 
-static inline Triangle make_triangle(Vec3F p1, Vec3F p2, Vec3F p3) {
-    Triangle t;
-    t.point[0] = p1;
-    t.point[1] = p2;
-    t.point[2] = p3;
-    return t;
+static inline Triangle make_triangle(Vec3F p1, Vec3F p2, Vec3F p3)
+{ 
+  Triangle t;
+  t.vertex[0] = vec3_to_vec4(p1);
+  t.vertex[1] = vec3_to_vec4(p2);
+  t.vertex[2] = vec3_to_vec4(p3);
+  t.transform = mat4_identity();
+  t.color = 0xFFFF0000u;
+  return t;
 }
 
 typedef struct {
-  Triangle* triangles;
+    Triangle* triangles;
 } Mesh;
 
 inline void mesh_free(Mesh* mesh)

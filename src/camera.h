@@ -40,6 +40,7 @@ inline void camera_update(Window* window, Camera* camera, float movement_speed, 
   POINT cursorPos;
   GetCursorPos(&cursorPos);               // get absolute cursor position
   ScreenToClient(window->hwnd, &cursorPos); // convert to window client coordinates
+  //ShowCursor(FALSE);
 
   static int lastX = -1, lastY = -1;
   if(lastX == -1 && lastY == -1) { lastX = cursorPos.x; lastY = cursorPos.y; }

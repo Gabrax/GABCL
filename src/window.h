@@ -1,5 +1,4 @@
-#ifndef WINDOW_H
-#define WINDOW_H
+#pragma once
 
 #include <Windows.h>
 #include <stdint.h>
@@ -10,6 +9,7 @@ typedef struct {
     BITMAPINFO bmi;
     int width;
     int height;
+    uint32_t* frame_buffer;
 } Window;
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -58,11 +58,11 @@ inline void window_init(Window* win, const char* name, int width, int height)
   win->bmi.bmiHeader.biPlanes = 1;
   win->bmi.bmiHeader.biBitCount = 32;
   win->bmi.bmiHeader.biCompression = BI_RGB;
+
+  win->frame_buffer = malloc(width * height * sizeof(unsigned int));
 }
 
-inline void window_render(Window* win, uint32_t* pixels)
+inline void window_render(Window* win)
 {
-    StretchDIBits(win->hdc, 0, 0, win->width, win->height, 0, 0, win->width, win->height, pixels, &win->bmi, DIB_RGB_COLORS, SRCCOPY);
+  StretchDIBits(win->hdc, 0, 0, win->width, win->height, 0, 0, win->width, win->height, win->frame_buffer, &win->bmi, DIB_RGB_COLORS, SRCCOPY);
 }
-
-#endif // WINDOW_H

@@ -48,6 +48,16 @@ Vec3F vec3_normalize(Vec3F vec)
   if (len == 0.0f) return (Vec3F){0,0,0}; 
   return (Vec3F){ vec.x/len, vec.y/len, vec.z/len };
 }
+void vec4_to_NDC(Vec4F* vec)
+{
+  vec->x /= vec->w;
+  vec->y /= vec->w;
+  vec->z /= vec->w;
+}
+Vec4F vec3_to_vec4(Vec3F vec)
+{
+  return (Vec4F){vec.x,vec.y,vec.z,1.0f};
+}
 Vec4F mat4_mul_vec4(Mat4F mat, Vec4F vec)
 {
   Vec4F res;
@@ -56,12 +66,6 @@ Vec4F mat4_mul_vec4(Mat4F mat, Vec4F vec)
   res.z = mat.z1 * vec.x + mat.z2 * vec.y + mat.z3 * vec.z + mat.z4 * vec.w;
   res.w = mat.w1 * vec.x + mat.w2 * vec.y + mat.w3 * vec.z + mat.w4 * vec.w;
   return res;
-}
-void vec4_to_NDC(Vec4F* vec)
-{
-  vec->x /= vec->w;
-  vec->y /= vec->w;
-  vec->z /= vec->w;
 }
 Mat4F mat4_identity()
 {

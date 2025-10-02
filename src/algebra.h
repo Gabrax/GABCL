@@ -34,6 +34,7 @@ Vec3F vec3_scale(Vec3F vec, float scalar);
 Vec3F vec3_normalize(Vec3F vec);
 Vec4F mat4_mul_vec4(Mat4F mat, Vec4F vec);
 void vec4_to_NDC(Vec4F* vec);
+Vec4F vec3_to_vec4(Vec3F vec);
 
 Mat4F mat4_identity();
 void mat4_translate(Mat4F* mat, Vec3F position);
