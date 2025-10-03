@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-static inline char* loadKernel(const char* filename) {
+static inline const char* loadKernel(const char* filename) {
     FILE* f = fopen(filename, "rb");
     if(!f) { printf("Cannot open kernel file.\n"); return NULL; }
     fseek(f,0,SEEK_END);
@@ -13,4 +13,9 @@ static inline char* loadKernel(const char* filename) {
     src[size] = '\0';
     fclose(f);
     return src;
+}
+
+static inline void loadOBJ(const char* filename)
+{
+
 }

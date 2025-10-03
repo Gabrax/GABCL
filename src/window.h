@@ -3,66 +3,91 @@
 #include <Windows.h>
 #include <stdint.h>
 
+typedef struct { unsigned char r, g, b, a; } Pixel;
+
 typedef struct {
     HWND hwnd;
-    HDC hdc;
-    BITMAPINFO bmi;
-    int width;
-    int height;
-    uint32_t* frame_buffer;
+    HDC hMemDC;
+    HBITMAP hBitmap;
+    Pixel* pixelBuffer;
+    float width;
+    float height;
 } Window;
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (msg == WM_DESTROY) PostQuitMessage(0);
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            Window* window = (Window*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+            if(window && window->hMemDC)
+                BitBlt(hdc, 0, 0, window->width, window->height, window->hMemDC, 0, 0, SRCCOPY);
+            EndPaint(hwnd, &ps);
+        } break;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+    }
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
-inline void window_init(Window* win, const char* name, int width, int height)
+Window createWindow(int width, int height)
 {
-  HINSTANCE hInstance = GetModuleHandle(NULL);
+    Window win = {0};
+    win.width = width;
+    win.height = height;
 
-  WNDCLASS wc = { 0 };
-  wc.lpfnWndProc = WndProc;
-  wc.hInstance = hInstance;
-  wc.lpszClassName = "MyWindowClass";
-  RegisterClass(&wc);
+    WNDCLASS wc = {0};
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = "OpenCLCube";
+    RegisterClass(&wc);
 
-  // Adjust for window borders
-  RECT wr = { 0, 0, width, height };
-  AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);
-  int winWidth = wr.right - wr.left;
-  int winHeight = wr.bottom - wr.top;
+    win.hwnd = CreateWindowEx(
+        0,
+        "OpenCLCube",
+        "3D Cube Rasterizer",
+        WS_OVERLAPPEDWINDOW,
+        0, 0, // temporary, will move later
+        width, height,
+        NULL, NULL,
+        wc.hInstance,
+        NULL
+    );
 
-  // Get screen dimensions
-  int screenWidth  = GetSystemMetrics(SM_CXSCREEN);
-  int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    int screenWidth  = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    int x = (screenWidth  - width)  / 2;
+    int y = (screenHeight - height) / 2;
+    SetWindowPos(win.hwnd, NULL, x, y, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+    SetWindowLongPtr(win.hwnd, GWLP_USERDATA, (LONG_PTR)&win);
+    ShowWindow(win.hwnd, SW_SHOW);
 
-  int posX = (screenWidth  - winWidth) / 2;
-  int posY = (screenHeight - winHeight) / 2;
+    HDC hdc = GetDC(win.hwnd);
+    win.hMemDC = CreateCompatibleDC(hdc);
 
-  win->hwnd = CreateWindow(
-      wc.lpszClassName,
-      name,
-      WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-      posX, posY, winWidth, winHeight,
-      NULL, NULL, hInstance, NULL
-  );
+    BITMAPINFO bmi = {0};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height; // top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
 
-  win->hdc = GetDC(win->hwnd);
-  win->width = width;
-  win->height = height;
+    win.hBitmap = CreateDIBSection(win.hMemDC, &bmi, DIB_RGB_COLORS, (void**)&win.pixelBuffer, NULL, 0);
+    SelectObject(win.hMemDC, win.hBitmap);
 
-  win->bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-  win->bmi.bmiHeader.biWidth = width;
-  win->bmi.bmiHeader.biHeight = -height; // top-down
-  win->bmi.bmiHeader.biPlanes = 1;
-  win->bmi.bmiHeader.biBitCount = 32;
-  win->bmi.bmiHeader.biCompression = BI_RGB;
-
-  win->frame_buffer = malloc(width * height * sizeof(unsigned int));
+    return win;
 }
 
-inline void window_render(Window* win)
+void updateWindow(Window* win)
 {
-  StretchDIBits(win->hdc, 0, 0, win->width, win->height, 0, 0, win->width, win->height, win->frame_buffer, &win->bmi, DIB_RGB_COLORS, SRCCOPY);
+  InvalidateRect(win->hwnd,NULL,FALSE);
+}
+
+void destroyWindow(Window* win) {
+    DeleteObject(win->hBitmap);
+    DeleteDC(win->hMemDC);
+    ReleaseDC(win->hwnd, GetDC(win->hwnd));
+    DestroyWindow(win->hwnd);
 }
