@@ -31,9 +31,17 @@ endif()
 include(FetchContent)
 
 FetchContent_Declare(
+    raylib
+    GIT_REPOSITORY "https://github.com/raysan5/raylib.git"
+    GIT_TAG "master"
+    GIT_PROGRESS TRUE
+)
+
+FetchContent_Declare(
   OpenCL_SDK
   GIT_REPOSITORY https://github.com/KhronosGroup/OpenCL-SDK.git
   GIT_TAG        main
+  GIT_PROGRESS TRUE
 )
 
 set(OPENCL_SDK_BUILD_SAMPLES OFF CACHE BOOL "Disable SDK samples" FORCE)
@@ -42,7 +50,7 @@ set(OPENCL_SDK_BUILD_VULKAN_SAMPLES OFF CACHE BOOL "Disable Vulkan samples" FORC
 set(OPENCL_SDK_TEST_SAMPLES OFF CACHE BOOL "Disable sample tests" FORCE)
 set(OPENCL_SDK_FETCH_DEPENDENCIES ON CACHE BOOL "Fetch dependencies automatically" FORCE)
 
-FetchContent_MakeAvailable(OpenCL_SDK)
+FetchContent_MakeAvailable(raylib OpenCL_SDK)
 
 add_subdirectory(vendor/stb_ds)
 
@@ -50,4 +58,4 @@ file(GLOB_RECURSE MY_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/
 
 target_sources("${CMAKE_PROJECT_NAME}" PRIVATE ${MY_SOURCES})
 
-target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE OpenCL::OpenCL stb_ds)
+target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE raylib OpenCL::OpenCL stb_ds)

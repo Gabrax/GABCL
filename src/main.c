@@ -1,129 +1,100 @@
-#include <windows.h>
-#include <CL/cl.h>
 #include <stdio.h>
 #include <math.h>
-#include "algebra.h"
-#include "utils.h"
-#include "window.h"
 #include "shapes.h"
+#include "raylib.h"
+#include "rcamera.h"
+#include "CL.h"
 
 #define WIDTH 512
 #define HEIGHT 512
 
-Vec3F cubeVerts[36] = {
-    // front face (z = -0.5)
-    {-0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,-0.5f}, {0.5f,0.5f,-0.5f},
-    {-0.5f,-0.5f,-0.5f}, {0.5f,0.5f,-0.5f}, {-0.5f,0.5f,-0.5f},
-
-    // back face (z = 0.5)
-    {-0.5f,-0.5f,0.5f}, {0.5f,0.5f,0.5f}, {0.5f,-0.5f,0.5f},
-    {-0.5f,-0.5f,0.5f}, {-0.5f,0.5f,0.5f}, {0.5f,0.5f,0.5f},
-
-    // bottom face (y = -0.5)
-    {-0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,0.5f},
-    {-0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,0.5f}, {-0.5f,-0.5f,0.5f},
-
-    // top face (y = 0.5)
-    {-0.5f,0.5f,-0.5f}, {0.5f,0.5f,0.5f}, {0.5f,0.5f,-0.5f},
-    {-0.5f,0.5f,-0.5f}, {-0.5f,0.5f,0.5f}, {0.5f,0.5f,0.5f},
-
-    // left face (x = -0.5)
-    {-0.5f,-0.5f,-0.5f}, {-0.5f,0.5f,-0.5f}, {-0.5f,0.5f,0.5f},
-    {-0.5f,-0.5f,-0.5f}, {-0.5f,0.5f,0.5f}, {-0.5f,-0.5f,0.5f},
-
-    // right face (x = 0.5)
-    {0.5f,-0.5f,-0.5f}, {0.5f,0.5f,0.5f}, {0.5f,0.5f,-0.5f},
-    {0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,0.5f}, {0.5f,0.5f,0.5f}
-};
-
 int main()
 {
-    Mesh cube = make_mesh_from_vertices(cubeVerts, 36, 0xFF00FFFFu); 
-    Window window = createWindow(WIDTH, HEIGHT); 
+  InitWindow(WIDTH, HEIGHT, "GABCL");
+  SetTargetFPS(60);
 
-    int width = WIDTH, height = HEIGHT;
-    size_t global[2] = {WIDTH, HEIGHT};
-    size_t vertexGlobal = cube.numTriangles * 3;
+  int width = WIDTH, height = HEIGHT;
 
-    cl_platform_id platform;
-    cl_device_id device;
-    clGetPlatformIDs(1, &platform, NULL);
-    clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL);
+  Camera3D camera = {0};  
+  camera.position = (Vector3){ 0.0f, 2.0f, 6.0f };  
+  camera.target   = (Vector3){ 0.0f, 0.0f, 0.0f };  
+  camera.up       = (Vector3){ 0.0f, 1.0f, 0.0f };  
+  camera.fovy     = 45.0f;                           
+  camera.projection     = CAMERA_PERSPECTIVE;
 
-    cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, NULL);
-    cl_command_queue queue = clCreateCommandQueue(context, device, 0, NULL);
-    cl_int err;
+  CustomModel mesh = make_mesh_from_OBJ("res/cube.obj", (Color){0,255,0,255});
+  size_t vertexGlobal = mesh.numTriangles * 3;
 
-    const char* kernelSource = loadKernel("src/shapes.cl"); 
-    cl_program program = clCreateProgramWithSource(context, 1, &kernelSource, NULL, &err);
-    if (err != CL_SUCCESS) { printf("Error creating program: %d\n", err); }
+  CL cl = clInit("src/shapes.cl");
 
-    err = clBuildProgram(program, 1, &device, NULL, NULL, NULL);
-    if (err != CL_SUCCESS) {
-        size_t log_size;
-        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
-        char* log = (char*)malloc(log_size);
-        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
-        printf("OpenCL build error:\n%s\n", log);
-        free(log);
-        return 1;
-    }
+  cl_kernel vertexKernel = clCreateKernel(cl.program, "vertex_kernel", NULL);
+  cl_kernel fragmentKernel = clCreateKernel(cl.program, "fragment_kernel", NULL);
 
-    cl_kernel vertexKernel = clCreateKernel(program, "vertex_kernel", NULL);
-    cl_kernel fragmentKernel = clCreateKernel(program, "fragment_kernel", NULL);
+  cl_mem clPixels = clCreateBuffer(cl.context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(Color), NULL, NULL);
+  cl_mem clDepth = clCreateBuffer(cl.context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(float), NULL, NULL);
+  cl_mem trisBuffer = clCreateBuffer(cl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,sizeof(Triangle) * mesh.numTriangles, mesh.triangles, &cl.err);
+  cl_mem projVerts = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(Vector3) * mesh.numTriangles * 3, NULL, NULL);
 
-    cl_mem clPixels = clCreateBuffer(context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(Pixel), NULL, NULL);
-    cl_mem clDepth = clCreateBuffer(context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(float), NULL, NULL);
-    cl_mem trisBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,sizeof(Triangle) * cube.numTriangles, cube.triangles, &err);
-    cl_mem projVerts = clCreateBuffer(context, CL_MEM_READ_WRITE,sizeof(Vec3F) * cube.numTriangles * 3, NULL, NULL);
+  clSetKernelArg(vertexKernel, 0, sizeof(cl_mem), &trisBuffer);
+  clSetKernelArg(vertexKernel, 1, sizeof(cl_mem), &projVerts);
+  clSetKernelArg(vertexKernel, 2, sizeof(int), &mesh.numTriangles);
+  clSetKernelArg(vertexKernel, 4, sizeof(int), &width);
+  clSetKernelArg(vertexKernel, 5, sizeof(int), &height);
 
-    clSetKernelArg(vertexKernel, 0, sizeof(cl_mem), &trisBuffer);
-    clSetKernelArg(vertexKernel, 1, sizeof(cl_mem), &projVerts);
-    clSetKernelArg(vertexKernel, 2, sizeof(int), &cube.numTriangles);
-    clSetKernelArg(vertexKernel, 4, sizeof(int), &width);
-    clSetKernelArg(vertexKernel, 5, sizeof(int), &height);
+  clSetKernelArg(fragmentKernel, 0, sizeof(cl_mem), &clPixels);
+  clSetKernelArg(fragmentKernel, 1, sizeof(cl_mem), &clDepth);
+  clSetKernelArg(fragmentKernel, 2, sizeof(cl_mem), &trisBuffer);
+  clSetKernelArg(fragmentKernel, 3, sizeof(cl_mem), &projVerts);
+  clSetKernelArg(fragmentKernel, 4, sizeof(int), &mesh.numTriangles);
+  clSetKernelArg(fragmentKernel, 5, sizeof(int), &width);
+  clSetKernelArg(fragmentKernel, 6, sizeof(int), &height);
 
-    clSetKernelArg(fragmentKernel, 0, sizeof(cl_mem), &clPixels);
-    clSetKernelArg(fragmentKernel, 1, sizeof(cl_mem), &clDepth);
-    clSetKernelArg(fragmentKernel, 2, sizeof(cl_mem), &trisBuffer);
-    clSetKernelArg(fragmentKernel, 3, sizeof(cl_mem), &projVerts);
-    clSetKernelArg(fragmentKernel, 4, sizeof(int), &cube.numTriangles);
-    clSetKernelArg(fragmentKernel, 5, sizeof(int), &width);
-    clSetKernelArg(fragmentKernel, 6, sizeof(int), &height);
+  Image img = GenImageColor(WIDTH, HEIGHT, BLACK);
+  Texture2D texture = LoadTextureFromImage(img);
+  free(img.data); // pixel buffer is managed by OpenCL
 
-    float t = 0.0f;
-    MSG msg = {0};
-    while (msg.message != WM_QUIT)
-    {
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
+  float t = 0.0f;
+  Matrix view = GetCameraViewMatrix(&camera);
+  Matrix proj = GetCameraProjectionMatrix(&camera, (float)GetScreenWidth()/GetScreenHeight());
+  Matrix viewProj = MatrixMultiply(proj, view); 
 
-        clSetKernelArg(vertexKernel, 3, sizeof(float), &t);
+  size_t global[2] = {WIDTH, HEIGHT};
+  Color* pixelBuffer = (Color*)malloc(WIDTH * HEIGHT * sizeof(Color));
 
-        clEnqueueNDRangeKernel(queue, vertexKernel, 1, NULL, &vertexGlobal, NULL, 0, NULL, NULL);
-        clEnqueueNDRangeKernel(queue, fragmentKernel, 2, NULL, global, NULL, 0, NULL, NULL);
+  while (!WindowShouldClose())
+  {
+    UpdateCamera(&camera, CAMERA_FIRST_PERSON);
 
-        clEnqueueReadBuffer(queue, clPixels, CL_TRUE, 0, WIDTH * HEIGHT * sizeof(Pixel), window.pixelBuffer, 0, NULL, NULL);
+    clSetKernelArg(vertexKernel, 3, sizeof(float), &t);
+    clEnqueueNDRangeKernel(cl.queue, vertexKernel, 1, NULL, &vertexGlobal, NULL, 0, NULL, NULL);
+    clEnqueueNDRangeKernel(cl.queue, fragmentKernel, 2, NULL, global, NULL, 0, NULL, NULL);
 
-        InvalidateRect(window.hwnd, NULL, FALSE);
-        t += 0.02f;
+    clEnqueueReadBuffer(cl.queue, clPixels, CL_TRUE, 0, WIDTH * HEIGHT * sizeof(Color), pixelBuffer, 0, NULL, NULL);
+    UpdateTexture(texture, pixelBuffer);
 
-        Sleep(16);
-    }
+    t += 0.02f;
 
-    clReleaseMemObject(clPixels);
-    clReleaseMemObject(clDepth);
-    clReleaseMemObject(trisBuffer);
-    clReleaseMemObject(projVerts);
-    clReleaseKernel(vertexKernel);
-    clReleaseKernel(fragmentKernel);
-    clReleaseProgram(program);
-    clReleaseCommandQueue(queue);
-    clReleaseContext(context);
+    BeginDrawing();
+    ClearBackground(BLACK);
+    DrawTexture(texture, 0, 0, WHITE);
+    EndDrawing();
+  }
 
-    destroyWindow(&window);
-    return 0;
+  free(pixelBuffer);
+
+  UnloadTexture(texture);
+  CloseWindow();
+
+  clReleaseMemObject(clPixels);
+  clReleaseMemObject(clDepth);
+  clReleaseMemObject(trisBuffer);
+  clReleaseMemObject(projVerts);
+  clReleaseKernel(vertexKernel);
+  clReleaseKernel(fragmentKernel);
+  clReleaseProgram(cl.program);
+  clReleaseCommandQueue(cl.queue);
+  clReleaseContext(cl.context);
+
+  return 0;
 }
 

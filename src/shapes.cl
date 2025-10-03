@@ -1,11 +1,13 @@
 typedef struct { uchar r, g, b, a; } Pixel;
-typedef struct {
-    float x, y, z, w;
-} Vec4F;
+typedef struct { float x, y; } Vec2F;
+typedef struct { float x, y, z; } Vec3F;
+typedef struct { float x, y, z, w; } Vec4F;
 
 typedef struct {
-    Vec4F vertex[3];   // 3 vertices in model space
-    unsigned int color;  // ARGB
+    Vec4F vertex[3];     // model space vertices
+    Vec2F uv[3];         // texture coords (optional)
+    Vec3F normal[3];     // normals
+    Pixel color;
 } Triangle;
 
 __kernel void vertex_kernel(
@@ -37,6 +39,10 @@ __kernel void vertex_kernel(
     float z1 = x0 * s + z0 * c;
 
     // Perspective projection
+    float zOffset = 5.0f; // negative = move away from camera
+    z1 += zOffset;
+
+    // Perspective projection
     float f = 1.0f / (z1 + 2.0f);
     projVerts[i] = (float3)((x1*f + 0.5f) * (float)width,(y0*f + 0.5f) * (float)height,z1);
 }
@@ -58,12 +64,11 @@ __kernel void fragment_kernel(
     float py = (float)y;
 
     float mindepth = 1e10f;
-    Pixel color = {0,0,0,255};
+    Pixel color = (Pixel){0, 0, 0, 255}; // background
 
     for (int tri = 0; tri < numTriangles; tri++)
     {
         __global Triangle* t = &tris[tri];
-        unsigned int c = t->color;
 
         float2 v0 = (float2)(projVerts[tri*3 + 0].x, projVerts[tri*3 + 0].y);
         float2 v1 = (float2)(projVerts[tri*3 + 1].x, projVerts[tri*3 + 1].y);
@@ -78,14 +83,14 @@ __kernel void fragment_kernel(
 
         if ((a >= 0 && b >= 0 && g >= 0) || (a <= 0 && b <= 0 && g <= 0))
         {
-            float z = a*projVerts[tri*3 + 0].z + b*projVerts[tri*3 + 1].z + g*projVerts[tri*3 + 2].z;
+            float z = a*projVerts[tri*3 + 0].z +
+                      b*projVerts[tri*3 + 1].z +
+                      g*projVerts[tri*3 + 2].z;
+
             if (z < mindepth)
             {
                 mindepth = z;
-                color.r = (c >> 16) & 0xFF;
-                color.g = (c >> 8) & 0xFF;
-                color.b = c & 0xFF;
-                color.a = 255;
+                color = t->color;   // <-- directly use the struct Pixel
             }
         }
     }
