@@ -3,48 +3,62 @@ typedef struct { float x, y; } Vec2F;
 typedef struct { float x, y, z; } Vec3F;
 typedef struct { float x, y, z, w; } Vec4F;
 
+typedef struct Matrix {
+    float m0, m4, m8, m12;  // Matrix first row (4 components)
+    float m1, m5, m9, m13;  // Matrix second row (4 components)
+    float m2, m6, m10, m14; // Matrix third row (4 components)
+    float m3, m7, m11, m15; // Matrix fourth row (4 components)
+} Matrix;
+
 typedef struct {
     Vec4F vertex[3];     // model space vertices
     Vec2F uv[3];         // texture coords (optional)
     Vec3F normal[3];     // normals
     Pixel color;
+    Matrix tranform;
 } Triangle;
 
-__kernel void vertex_kernel(
-    __global Triangle* tris,
-    __global float3* projVerts, // numTriangles * 3
-    int numTriangles,
-    float t,
-    int width,
-    int height)
+__kernel void vertex_kernel(__global Triangle* tris,__global float3* projVerts, int numTriangles,int width,int height,__global Matrix* mvp)
 {
-    int i = get_global_id(0); // i = vertex index across all triangles
-    if (i >= numTriangles * 3) return;
+  int i = get_global_id(0);
+  if (i >= numTriangles*3) return;
 
-    int triIdx = i / 3;
-    int vertIdx = i % 3;
+  int triIdx = i / 3;
+  int vertIdx = i % 3;
 
-    __global Triangle* tri = &tris[triIdx];
-    float3 vert = (float3)(tri->vertex[vertIdx].x,
+  __global Triangle* tri = &tris[triIdx];
+    float4 vert = (float4)(tri->vertex[vertIdx].x,
                            tri->vertex[vertIdx].y,
-                           tri->vertex[vertIdx].z);
+                           tri->vertex[vertIdx].z,
+                           1.0f);
 
-    // Rotation
-    float s = sin(t), c = cos(t);
-    float sX = sin(t*0.7f), cX = cos(t*0.7f);
-    float y0 = vert.y * cX - vert.z * sX;
-    float z0 = vert.y * sX + vert.z * cX;
-    float x0 = vert.x;
-    float x1 = x0 * c - z0 * s;
-    float z1 = x0 * s + z0 * c;
+    float x = vert.x*mvp->m0 + vert.y*mvp->m4 + vert.z*mvp->m8  + vert.w*mvp->m12;
+    float y = vert.x*mvp->m1 + vert.y*mvp->m5 + vert.z*mvp->m9  + vert.w*mvp->m13;
+    float z = vert.x*mvp->m2 + vert.y*mvp->m6 + vert.z*mvp->m10 + vert.w*mvp->m14;
+    float w = vert.x*mvp->m3 + vert.y*mvp->m7 + vert.z*mvp->m11 + vert.w*mvp->m15;
 
-    // Perspective projection
-    float zOffset = 5.0f; // negative = move away from camera
-    z1 += zOffset;
+    // Guard against w = 0
+    if (fabs(w) < 1e-6f) {
+        projVerts[i] = (float3)(-1e9f, -1e9f, 1e9f);
+        return;
+    }
 
-    // Perspective projection
-    float f = 1.0f / (z1 + 2.0f);
-    projVerts[i] = (float3)((x1*f + 0.5f) * (float)width,(y0*f + 0.5f) * (float)height,z1);
+    float invW = 1.0f / w;
+
+    // Perspective divide to NDC
+    float ndcX = x * invW;
+    float ndcY = y * invW;
+    float ndcZ = z * invW;
+
+    // Map to screen coordinates (flip Y)
+    float sx = (ndcX + 1.0f) * 0.5f * (float)width;
+    float sy = (1.0f - (ndcY + 1.0f) * 0.5f) * (float)height;
+
+    // Clamp Z to [0,1] for depth buffer
+    ndcZ = ndcZ * 0.5f + 0.5f;
+    ndcZ = fmin(fmax(ndcZ, 0.0f), 1.0f);
+
+    projVerts[i] = (float3)(sx, sy, ndcZ);
 }
 
 __kernel void fragment_kernel(

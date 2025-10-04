@@ -6,10 +6,11 @@
 #include "raymath.h"
 
 typedef struct {
-    Vector4 vertex[3];
+    Vector4 vertex[3]; // model-space vertices
     Vector2 uv[3];
     Vector3 normal[3];
     Color color;
+    Matrix transform; // model/world transform
 } Triangle;
 
 static inline Vector4 Vec3ToVec4(Vector3 v) {
@@ -22,18 +23,32 @@ static inline Vector3 Vec4ToVec3(Vector4 v) {
 
 static inline Triangle MakeTriangle(Vector3 p1, Vector3 p2, Vector3 p3, Color color)
 {
-    Triangle t;
-    t.vertex[0] = Vec3ToVec4(p1);
-    t.vertex[1] = Vec3ToVec4(p2);
-    t.vertex[2] = Vec3ToVec4(p3);
-    t.color = color;
-    return t;
+  Triangle t;
+  t.vertex[0] = Vec3ToVec4(p1);
+  t.vertex[1] = Vec3ToVec4(p2);
+  t.vertex[2] = Vec3ToVec4(p3);
+  t.color = color;
+  t.transform = MatrixIdentity();
+  return t;
 }
 
 typedef struct {
     Triangle* triangles;   // stb_ds stretchy buffer
     int numTriangles;
 } CustomModel;
+
+static inline Matrix UpdateModelTransform(Matrix* transform, Vector3 position, Vector3 rotation)
+{
+  Matrix mat = *transform;
+
+  mat = MatrixMultiply(MatrixRotateY(rotation.y * DEG2RAD), mat);
+  mat = MatrixMultiply(MatrixRotateX(rotation.x * DEG2RAD), mat);
+  mat = MatrixMultiply(MatrixRotateZ(rotation.z * DEG2RAD), mat);
+
+  mat = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), mat);
+
+  return mat;
+}
 
 CustomModel MakeMeshFromVertices(const Vector3* verts, int count, Color color)
 {
