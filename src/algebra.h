@@ -31,6 +31,10 @@ inline Vec3 Vec3Multiply(Vec3 v1, Vec3 v2)
 {
   return (Vec3){ v1.x * v2.x, v1.y * v2.y, v1.z * v2.z };
 }
+inline Vec3 Vec3MultiplyScalar(Vec3 v, float scalar)
+{
+  return (Vec3){ v.x * scalar, v.y * scalar, v.z * scalar };
+}
 inline Vec3 Vec3Cross(Vec3 v1, Vec3 v2) // Returns orthogonal vector
 {
   return (Vec3){v1.y * v2.z - v1.z * v2.y,v1.z * v2.x - v1.x * v2.z,v1.x * v2.y - v1.y * v2.x};
@@ -168,12 +172,30 @@ inline Mat4 MatTransform(Vec3 position, Vec3 deg_rotation, Vec3 scale)
 
   return mat;
 }
+inline Mat4 MatInverseRT(const Mat4* m)
+{
+  Mat4 inv = {0};
+
+  // transpose rotation part
+  inv.x0 = m->x0; inv.x1 = m->y0; inv.x2 = m->z0;
+  inv.y0 = m->x1; inv.y1 = m->y1; inv.y2 = m->z1;
+  inv.z0 = m->x2; inv.z1 = m->y2; inv.z2 = m->z2;
+
+  // inverse translation
+  inv.x3 = -(inv.x0 * m->x3 + inv.x1 * m->y3 + inv.x2 * m->z3);
+  inv.y3 = -(inv.y0 * m->x3 + inv.y1 * m->y3 + inv.y2 * m->z3);
+  inv.z3 = -(inv.z0 * m->x3 + inv.z1 * m->y3 + inv.z2 * m->z3);
+
+  // bottom row
+  inv.w0 = 0.0f; inv.w1 = 0.0f; inv.w2 = 0.0f; inv.w3 = 1.0f;
+
+  return inv;
+}
 inline Mat4 MatLookAt(Vec3 position, Vec3 target, Vec3 up)
 {
-  // Forward (Z axis) → camera looks toward -Z in OpenGL
-  Vec3 f = Vec3Norm(Vec3Sub(target, position));   // forward
-  Vec3 s = Vec3Norm(Vec3Cross(f, up));            // right
-  Vec3 u = Vec3Cross(s, f);                       // recalculated up
+  Vec3 f = Vec3Norm(Vec3Sub(target, position));  // forward
+  Vec3 s = Vec3Norm(Vec3Cross(up, f));           // right (swapped order)
+  Vec3 u = Vec3Cross(f, s);                      // true up
 
   Mat4 mat = MatIdentity();
 
