@@ -1,56 +1,34 @@
 #pragma once
+
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 #include <stdio.h>
+#include "algebra.h"
 #include "raylib.h"
-#include "raymath.h"
 
 typedef struct {
-    Vector4 vertex[3]; // model-space vertices
-    Vector2 uv[3];
-    Vector3 normal[3];
+    Vec3 vertex[3]; 
+    Vec2 uv[3];
+    Vec3 normal[3];
     Color color;
-    Matrix transform; // model/world transform
 } Triangle;
 
-static inline Vector4 Vec3ToVec4(Vector3 v) {
-    return (Vector4){ v.x, v.y, v.z, 1.0f };
-}
-
-static inline Vector3 Vec4ToVec3(Vector4 v) {
-    return (Vector3){ v.x, v.y, v.z };
-}
-
-static inline Triangle MakeTriangle(Vector3 p1, Vector3 p2, Vector3 p3, Color color)
+static inline Triangle MakeTriangle(Vec3 p1, Vec3 p2, Vec3 p3, Color color)
 {
   Triangle t;
-  t.vertex[0] = Vec3ToVec4(p1);
-  t.vertex[1] = Vec3ToVec4(p2);
-  t.vertex[2] = Vec3ToVec4(p3);
+  t.vertex[0] = p1;
+  t.vertex[1] = p2;
+  t.vertex[2] = p3;
   t.color = color;
-  t.transform = MatrixIdentity();
   return t;
 }
 
 typedef struct {
-    Triangle* triangles;   // stb_ds stretchy buffer
-    int numTriangles;
+    Triangle* triangles;   
+    size_t numTriangles;
 } CustomModel;
 
-static inline Matrix UpdateModelTransform(Matrix* transform, Vector3 position, Vector3 rotation)
-{
-  Matrix mat = *transform;
-
-  mat = MatrixMultiply(MatrixRotateY(rotation.y * DEG2RAD), mat);
-  mat = MatrixMultiply(MatrixRotateX(rotation.x * DEG2RAD), mat);
-  mat = MatrixMultiply(MatrixRotateZ(rotation.z * DEG2RAD), mat);
-
-  mat = MatrixMultiply(MatrixTranslate(position.x, position.y, position.z), mat);
-
-  return mat;
-}
-
-CustomModel MakeMeshFromVertices(const Vector3* verts, int count, Color color)
+CustomModel MakeMeshFromVertices(const Vec3* verts, int count, Color color)
 {
     CustomModel model = {0};
 
@@ -63,12 +41,9 @@ CustomModel MakeMeshFromVertices(const Vector3* verts, int count, Color color)
     return model;
 }
 
-inline CustomModel make_mesh_from_OBJ(const char* filename, Color color)
+inline CustomModel LoadfromOBJ(const char* filename, Color color)
 {
     CustomModel mesh = {0};
-    Vector3* tempVerts   = NULL;
-    Vector2* tempUVs     = NULL;
-    Vector3* tempNormals = NULL;
 
     FILE* file = fopen(filename, "r");
     if (!file) {
@@ -76,25 +51,26 @@ inline CustomModel make_mesh_from_OBJ(const char* filename, Color color)
         return mesh;
     }
 
-    char line[256];
+    Vec3* tempVerts   = NULL;
+    Vec2* tempUVs     = NULL;
+    Vec3* tempNormals = NULL;
+
+    char line[512];
     while (fgets(line, sizeof(line), file)) {
         if (strncmp(line, "v ", 2) == 0) {
-            Vector3 v;
-            if (sscanf(line + 2, "%f %f %f", &v.x, &v.y, &v.z) == 3) {
+            Vec3 v;
+            if (sscanf(line + 2, "%f %f %f", &v.x, &v.y, &v.z) == 3)
                 arrpush(tempVerts, v);
-            }
         } 
         else if (strncmp(line, "vt ", 3) == 0) {
-            Vector2 uv;
-            if (sscanf(line + 3, "%f %f", &uv.x, &uv.y) == 2) {
+            Vec2 uv;
+            if (sscanf(line + 3, "%f %f", &uv.x, &uv.y) == 2)
                 arrpush(tempUVs, uv);
-            }
         } 
         else if (strncmp(line, "vn ", 3) == 0) {
-            Vector3 n;
-            if (sscanf(line + 3, "%f %f %f", &n.x, &n.y, &n.z) == 3) {
+            Vec3 n;
+            if (sscanf(line + 3, "%f %f %f", &n.x, &n.y, &n.z) == 3)
                 arrpush(tempNormals, n);
-            }
         } 
         else if (strncmp(line, "f ", 2) == 0) {
             char* token = strtok(line + 2, " \t\n");
@@ -103,16 +79,16 @@ inline CustomModel make_mesh_from_OBJ(const char* filename, Color color)
 
             while (token && idxCount < 4) {
                 int vi = 0, ti = 0, ni = 0;
+                if (strstr(token, "//"))
+                    sscanf(token, "%d//%d", &vi, &ni);
+                else if (sscanf(token, "%d/%d/%d", &vi, &ti, &ni) == 3);
+                else if (sscanf(token, "%d/%d", &vi, &ti) == 2);
+                else
+                    sscanf(token, "%d", &vi);
 
-                if (strstr(token, "//")) {
-                    sscanf(token, "%d//%d", &vi, &ni); // v//vn
-                } else if (sscanf(token, "%d/%d/%d", &vi, &ti, &ni) == 3) {
-                    // v/vt/vn
-                } else if (sscanf(token, "%d/%d", &vi, &ti) == 2) {
-                    // v/vt
-                } else {
-                    sscanf(token, "%d", &vi); // v
-                }
+                if (vi < 0) vi = arrlen(tempVerts) + vi + 1;
+                if (ti < 0) ti = arrlen(tempUVs) + ti + 1;
+                if (ni < 0) ni = arrlen(tempNormals) + ni + 1;
 
                 vIdx[idxCount]  = vi ? vi - 1 : -1;
                 uvIdx[idxCount] = ti ? ti - 1 : -1;
@@ -122,7 +98,6 @@ inline CustomModel make_mesh_from_OBJ(const char* filename, Color color)
                 token = strtok(NULL, " \t\n");
             }
 
-            // Triangulate (handle quads as 2 triangles)
             int triOrder[2][3] = { {0,1,2}, {0,2,3} };
             int triCount = (idxCount == 4 ? 2 : 1);
 
@@ -130,26 +105,24 @@ inline CustomModel make_mesh_from_OBJ(const char* filename, Color color)
                 Triangle tri = {0};
                 for (int j = 0; j < 3; j++) {
                     int idx = triOrder[t][j];
-                    if (vIdx[idx]  >= 0) tri.vertex[j] = Vec3ToVec4(tempVerts[vIdx[idx]]);
+                    if (vIdx[idx]  >= 0) tri.vertex[j] = tempVerts[vIdx[idx]];
                     if (uvIdx[idx] >= 0) tri.uv[j]     = tempUVs[uvIdx[idx]];
                     if (nIdx[idx]  >= 0) tri.normal[j] = tempNormals[nIdx[idx]];
                 }
                 tri.color = color;
 
-                // --- Fix winding order (force CCW) ---
-                Vector3 a = Vec4ToVec3(tri.vertex[0]);
-                Vector3 b = Vec4ToVec3(tri.vertex[1]);
-                Vector3 c = Vec4ToVec3(tri.vertex[2]);
+                Vec3 a = tri.vertex[0];
+                Vec3 b = tri.vertex[1];
+                Vec3 c = tri.vertex[2];
 
-                
-                Vector3 ab = Vector3Subtract(b, a);
-                Vector3 ac = Vector3Subtract(c, a);
-                Vector3 n  = Vector3CrossProduct(ab, ac);
+                Vec3 ab = Vec3Sub(b, a);
+                Vec3 ac = Vec3Sub(c, a);
+                Vec3 n  = Vec3Cross(ab, ac);
 
-                if (n.z > 0.0f) { // if wrong, swap
-                    Vector4 tmpv = tri.vertex[1];  tri.vertex[1] = tri.vertex[2];  tri.vertex[2] = tmpv;
-                    Vector2 tmpuv = tri.uv[1];     tri.uv[1]    = tri.uv[2];      tri.uv[2]    = tmpuv;
-                    Vector3 tmpn  = tri.normal[1]; tri.normal[1]= tri.normal[2];   tri.normal[2]= tmpn;
+                if (n.z > 0.0f) { // flip if clockwise (OpenGL convention)
+                    Vec3 tmpv = tri.vertex[1];  tri.vertex[1] = tri.vertex[2];  tri.vertex[2] = tmpv;
+                    Vec2 tmpuv = tri.uv[1];     tri.uv[1]    = tri.uv[2];      tri.uv[2]    = tmpuv;
+                    Vec3 tmpn  = tri.normal[1]; tri.normal[1]= tri.normal[2];   tri.normal[2]= tmpn;
                 }
 
                 arrpush(mesh.triangles, tri);

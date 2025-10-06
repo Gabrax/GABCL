@@ -1,20 +1,13 @@
 #include <stdio.h>
 #include <math.h>
+#include "algebra.h"
 #include "shapes.h"
 #include "raylib.h"
-#include "rcamera.h"
+#include "camera.h"
 #include "CL.h"
 
-#define WIDTH 512
-#define HEIGHT 512
-
-void PrintMatrix(const Matrix* mat)
-{
-    printf("[ %f, %f, %f, %f ]\n", mat->m0, mat->m4, mat->m8,  mat->m12);
-    printf("[ %f, %f, %f, %f ]\n", mat->m1, mat->m5, mat->m9,  mat->m13);
-    printf("[ %f, %f, %f, %f ]\n", mat->m2, mat->m6, mat->m10, mat->m14);
-    printf("[ %f, %f, %f, %f ]\n", mat->m3, mat->m7, mat->m11, mat->m15);
-}
+#define WIDTH 800
+#define HEIGHT 600
 
 int main()
 {
@@ -23,24 +16,25 @@ int main()
 
   int width = WIDTH, height = HEIGHT;
 
-  Camera3D camera = {0};  
-  camera.position = (Vector3){ 0.0f, 0.0f, -10.0f };  
-  camera.target   = (Vector3){ 0.0f, 0.0f, 1.0f };  
-  camera.up       = (Vector3){ 0.0f, 1.0f, 0.0f };  
-  camera.fovy     = 45.0f;                           
-  camera.projection     = CAMERA_PERSPECTIVE;
+  GAB_Camera camera = {0};
+  camera.Position = (Vec3){0.0,0.0,0.0};
+  camera.Up = (Vec3){0.0,1.0,0.0};
+  camera.Front = (Vec3){0.0,0.0,-1.0};
+  camera.aspect_ratio = (float)GetScreenWidth()/(float)GetScreenHeight();
+  camera.near_plane = 0.01f;
+  camera.far_plane = 1000.0f;
+  camera.fov = 45.0f;
+  camera.fov_rad = 1.0f/tanf(camera.fov * 0.5f/180.0f * 3.14129f);
 
-  CustomModel mesh = make_mesh_from_OBJ("res/cube.obj", (Color){0,255,0,255});
+  Mat4 proj = MatPerspective(camera.fov_rad, camera.aspect_ratio, camera.near_plane, camera.far_plane);
+
+  Mat4 translate = MatTransform((Vec3){0.0,0.0,3.0},(Vec3){0.0,15.0,0.0},(Vec3){0.5,0.5,0.5});
+
+  Mat4 projection = MatMul(proj, translate);
+  MatPrint(&projection);
+
+  CustomModel mesh = LoadfromOBJ("res/cube.obj", (Color){0,255,0,255});
   size_t vertexGlobal = mesh.numTriangles * 3;
-
-  Matrix modelTransform = MatrixIdentity();
-  Matrix scaleMat = MatrixScale(0.5f,0.5f,0.5f);
-  Matrix rotX = MatrixRotateX(0.0f * DEG2RAD);
-  Matrix rotY = MatrixRotateY(0.0f * DEG2RAD);
-  Matrix rotZ = MatrixRotateZ(0.0f * DEG2RAD);
-  Matrix rotMat = MatrixMultiply(rotY, MatrixMultiply(rotX, rotZ));
-  Matrix transMat = MatrixTranslate(0.0f, 0.0f, 0.0f);
-  modelTransform = MatrixMultiply(transMat, MatrixMultiply(rotMat, scaleMat));
 
   CL cl = clInit("src/shapes.cl");
 
@@ -50,8 +44,8 @@ int main()
   cl_mem clPixels = clCreateBuffer(cl.context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(Color), NULL, NULL);
   cl_mem clDepth = clCreateBuffer(cl.context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(float), NULL, NULL);
   cl_mem trisBuffer = clCreateBuffer(cl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,sizeof(Triangle) * mesh.numTriangles, mesh.triangles, &cl.err);
-  cl_mem projVerts = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(Vector3) * mesh.numTriangles * 3, NULL, NULL);
-  cl_mem mvpBuffer = clCreateBuffer(cl.context,CL_MEM_READ_ONLY,sizeof(Matrix), NULL, &cl.err);
+  cl_mem projVerts = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(Vec3) * mesh.numTriangles * 3, NULL, NULL);
+  cl_mem mvpBuffer = clCreateBuffer(cl.context,CL_MEM_READ_ONLY,sizeof(Mat4), NULL, &cl.err);
 
   clSetKernelArg(vertexKernel, 0, sizeof(cl_mem), &trisBuffer);
   clSetKernelArg(vertexKernel, 1, sizeof(cl_mem), &projVerts);
@@ -72,24 +66,12 @@ int main()
   Texture2D texture = LoadTextureFromImage(img);
   free(img.data); // pixel buffer is managed by OpenCL
 
-  Matrix proj = GetCameraProjectionMatrix(&camera, (float)GetScreenWidth()/GetScreenHeight());
-
   size_t global[2] = {WIDTH, HEIGHT};
   Color* pixelBuffer = (Color*)malloc(WIDTH * HEIGHT * sizeof(Color));
-
+  float anglex = 0.0f, angley = 0.0f;
   while (!WindowShouldClose())
   {
-    UpdateCamera(&camera, CAMERA_FIRST_PERSON);
-    Matrix view = GetCameraViewMatrix(&camera);
-    Matrix proj = GetCameraProjectionMatrix(&camera, (float)WIDTH / HEIGHT);
-    Matrix mv   = MatrixMultiply(view, modelTransform);
-    Matrix mvp  = MatrixMultiply(proj, mv);   // projection * view * model
-    /*printf("MODEL\n"); PrintMatrix(&modelTransform);    */
-    /*printf("VIEW\n"); PrintMatrix(&view);    */
-    /*printf("PROJ\n"); PrintMatrix(&proj);    */
-    /*printf("MVP\n"); PrintMatrix(&mvp);    */
-
-    clEnqueueWriteBuffer(cl.queue, mvpBuffer, CL_TRUE, 0, sizeof(Matrix), &mvp, 0, NULL, NULL);
+    clEnqueueWriteBuffer(cl.queue, mvpBuffer, CL_TRUE, 0, sizeof(Mat4), &projection, 0, NULL, NULL);
 
     clEnqueueNDRangeKernel(cl.queue, vertexKernel, 1, NULL, &vertexGlobal, NULL, 0, NULL, NULL);
     clEnqueueNDRangeKernel(cl.queue, fragmentKernel, 2, NULL, global, NULL, 0, NULL, NULL);
