@@ -16,31 +16,81 @@ typedef struct {
     Pixel color;
 } Triangle;
 
-__kernel void vertex_kernel(__global Triangle* tris,__global float3* projVerts, int numTriangles,int width,int height,__global Mat4* mvp)
+__kernel void vertex_kernel(
+    __global Triangle* tris,
+    __global float3* projVerts,
+    __global Mat4* projection,
+    __global Mat4* view,
+    __global Mat4* transform,
+    int numTriangles,
+    int width,
+    int height)
 {
-  int i = get_global_id(0);
-  if (i >= numTriangles*3) return;
+    int triIdx = get_global_id(0);
+    if (triIdx >= numTriangles) return;
 
-  int triIdx = i / 3, vertIdx = i % 3;
+    __global Triangle* tri = &tris[triIdx];
 
-  __global Triangle* tri = &tris[triIdx];
-  float3 vert = (float3)(tri->vertex[vertIdx].x,tri->vertex[vertIdx].y,tri->vertex[vertIdx].z);
+    // --- Compute triangle normal (using vertex normals) ---
+    float3 n0 = (float3)(tri->normal[0].x, tri->normal[0].y, tri->normal[0].z);
+    float3 n1 = (float3)(tri->normal[1].x, tri->normal[1].y, tri->normal[1].z);
+    float3 n2 = (float3)(tri->normal[2].x, tri->normal[2].y, tri->normal[2].z);
 
-  // --- PROJECTION MULTIPLICATION ---
-  float x = vert.x * mvp->x0 + vert.y * mvp->x1 + vert.z * mvp->x2 + mvp->x3;
-  float y = vert.x * mvp->y0 + vert.y * mvp->y1 + vert.z * mvp->y2 + mvp->y3;
-  float z = vert.x * mvp->z0 + vert.y * mvp->z1 + vert.z * mvp->z2 + mvp->z3;
-  float w = vert.x * mvp->w0 + vert.y * mvp->w1 + vert.z * mvp->w2 + mvp->w3;
+    // Average
+    float3 normal = (n0 + n1 + n2) / 3.0f;
 
-  // --- Perspective divide ---
-  if (w != 0.0f) { x /= w; y /= w; z /= w;}
+    // Transform normal to view space (ignore translation, only rotation)
+    float3 n_view;
+    n_view.x = normal.x * view->x0 + normal.y * view->x1 + normal.z * view->x2;
+    n_view.y = normal.x * view->y0 + normal.y * view->y1 + normal.z * view->y2;
+    n_view.z = normal.x * view->z0 + normal.y * view->z1 + normal.z * view->z2;
 
-  // --- NDC → screen space ---
-  float sx = (x * 0.5f + 0.5f) * (float)width;
-  float sy = (y * 0.5f + 0.5f) * (float)height;
-  float sz = z * 0.5f + 0.5f;
+    // --- Backface culling ---
+    float3 viewDir = (float3)(0.0f, 0.0f, 1.0f); // camera looks down -Z
+    if (dot(n_view, viewDir) > 0.0f) {
+        // Cull triangle: write invalid vertices
+        for (int j = 0; j < 3; j++) {
+            projVerts[triIdx * 3 + j] = (float3)(-1.0f, -1.0f, -1.0f);
+        }
+        return;
+    }
 
-  projVerts[i] = (float3)(sx, sy, sz);
+    // --- Transform all 3 vertices: Model → View → Projection ---
+    for (int j = 0; j < 3; j++) {
+        float4 vert = (float4)(tri->vertex[j].x, tri->vertex[j].y, tri->vertex[j].z, 1.0f);
+
+        // Model → View
+        float4 v_model;
+        v_model.x = vert.x * transform->x0 + vert.y * transform->x1 + vert.z * transform->x2 + vert.w * transform->x3;
+        v_model.y = vert.x * transform->y0 + vert.y * transform->y1 + vert.z * transform->y2 + vert.w * transform->y3;
+        v_model.z = vert.x * transform->z0 + vert.y * transform->z1 + vert.z * transform->z2 + vert.w * transform->z3;
+        v_model.w = vert.x * transform->w0 + vert.y * transform->w1 + vert.z * transform->w2 + vert.w * transform->w3;
+
+        float4 v_view;
+        v_view.x = v_model.x * view->x0 + v_model.y * view->x1 + v_model.z * view->x2 + v_model.w * view->x3;
+        v_view.y = v_model.x * view->y0 + v_model.y * view->y1 + v_model.z * view->y2 + v_model.w * view->y3;
+        v_view.z = v_model.x * view->z0 + v_model.y * view->z1 + v_model.z * view->z2 + v_model.w * view->z3;
+        v_view.w = v_model.x * view->w0 + v_model.y * view->w1 + v_model.z * view->w2 + v_model.w * view->w3;
+
+        // View → Clip
+        float4 v_clip;
+        v_clip.x = v_view.x * projection->x0 + v_view.y * projection->x1 + v_view.z * projection->x2 + v_view.w * projection->x3;
+        v_clip.y = v_view.x * projection->y0 + v_view.y * projection->y1 + v_view.z * projection->y2 + v_view.w * projection->y3;
+        v_clip.z = v_view.x * projection->z0 + v_view.y * projection->z1 + v_view.z * projection->z2 + v_view.w * projection->z3;
+        v_clip.w = v_view.x * projection->w0 + v_view.y * projection->w1 + v_view.z * projection->w2 + v_view.w * projection->w3;
+
+        // Perspective divide
+        float ndc_x = v_clip.x / v_clip.w;
+        float ndc_y = v_clip.y / v_clip.w;
+        float ndc_z = v_clip.z / v_clip.w;
+
+        // NDC → screen space
+        float sx = (ndc_x * 0.5f + 0.5f) * (float)width;
+        float sy = (ndc_y * 0.5f + 0.5f) * (float)height;
+        float sz = ndc_z * 0.5f + 0.5f;
+
+        projVerts[triIdx * 3 + j] = (float3)(sx, sy, sz);
+    }
 }
 
 /*__kernel void fragment_kernel(*/

@@ -141,18 +141,28 @@ inline CustomModel LoadfromOBJ(const char* filename, Color color)
 }
 void PrintMesh(const CustomModel* model)
 {
-    for (int i = 0; i < model->numTriangles; i++) {
-        const Triangle* t = &model->triangles[i];
-        printf("Triangle %d:\n", i);
-        for (int v = 0; v < 3; v++) {
-            printf("  Vertex %d: (%f, %f, %f)\n", v,
-                   t->vertex[v].x,
-                   t->vertex[v].y,
-                   t->vertex[v].z);
-        }
-        printf("  Color: (r=%d g=%d b=%d a=%d)\n",
-               t->color.r, t->color.g, t->color.b, t->color.a);
-    }
+  for (int i = 0; i < model->numTriangles; i++) {
+      const Triangle* t = &model->triangles[i];
+      printf("Triangle %d:\n", i);
+
+      for (int v = 0; v < 3; v++) {
+          printf("  Vertex %d:\n", v);
+          printf("    Position: (%f, %f, %f)\n",
+                 t->vertex[v].x,
+                 t->vertex[v].y,
+                 t->vertex[v].z);
+          printf("    UV:        (%f, %f)\n",
+                 t->uv[v].x,
+                 t->uv[v].y);
+          printf("    Normal:    (%f, %f, %f)\n",
+                 t->normal[v].x,
+                 t->normal[v].y,
+                 t->normal[v].z);
+      }
+
+      printf("  Color: (r=%d g=%d b=%d a=%d)\n\n",
+             t->color.r, t->color.g, t->color.b, t->color.a);
+  }
 }
 
 // free memory

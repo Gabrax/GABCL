@@ -79,4 +79,6 @@ void updateCamera(GAB_Camera* camera, float mouseX, float mouseY, bool constrain
 
   camera->Right = Vec3Norm(Vec3Cross(camera->Front, camera->WorldUp));
   camera->Up    = Vec3Norm(Vec3Cross(camera->Right, camera->Front));
+
+  camera->look_at = MatLookAt(camera->Position, Vec3Add(camera->Position, camera->Front), camera->Up);
 }

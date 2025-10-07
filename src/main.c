@@ -25,7 +25,7 @@ int main()
   camera.near_plane = 0.01f;
   camera.far_plane = 1000.0f;
   camera.fov = 90.0f;
-  camera.fov_rad = camera.fov * (3.14159265f / 180.0f);  // correct degrees->radians
+  camera.fov_rad = camera.fov * (3.14159265f / 180.0f);  
   camera.proj = MatPerspective(camera.fov_rad, camera.aspect_ratio, camera.near_plane, camera.far_plane);
   camera.look_at = MatLookAt(camera.Position, Vec3Add(camera.Position, camera.Front), camera.WorldUp);
   camera.yaw = 90.0f;
@@ -48,14 +48,18 @@ int main()
   cl_mem clDepth    = clCreateBuffer(cl.context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(float), NULL, NULL);
   cl_mem trisBuffer = clCreateBuffer(cl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,sizeof(Triangle) * mesh.numTriangles, mesh.triangles, &cl.err);
   cl_mem projVerts  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(Vec3) * mesh.numTriangles * 3, NULL, NULL);
-  cl_mem mvpBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(Mat4), NULL, &cl.err);
+  cl_mem projectionBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(Mat4), NULL, &cl.err);
+  cl_mem viewBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(Mat4), NULL, &cl.err);
+  cl_mem transformBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(Mat4), NULL, &cl.err);
 
   clSetKernelArg(vertexKernel, 0, sizeof(cl_mem), &trisBuffer);
   clSetKernelArg(vertexKernel, 1, sizeof(cl_mem), &projVerts);
-  clSetKernelArg(vertexKernel, 2, sizeof(int), &mesh.numTriangles);
-  clSetKernelArg(vertexKernel, 3, sizeof(int), &width);
-  clSetKernelArg(vertexKernel, 4, sizeof(int), &height);
-  clSetKernelArg(vertexKernel, 5, sizeof(cl_mem), &mvpBuffer); 
+  clSetKernelArg(vertexKernel, 2, sizeof(cl_mem), &projectionBuffer); 
+  clSetKernelArg(vertexKernel, 3, sizeof(cl_mem), &viewBuffer); 
+  clSetKernelArg(vertexKernel, 4, sizeof(cl_mem), &transformBuffer); 
+  clSetKernelArg(vertexKernel, 5, sizeof(int), &mesh.numTriangles);
+  clSetKernelArg(vertexKernel, 6, sizeof(int), &width);
+  clSetKernelArg(vertexKernel, 7, sizeof(int), &height);
 
   clSetKernelArg(fragmentKernel, 0, sizeof(cl_mem), &clPixels);
   clSetKernelArg(fragmentKernel, 1, sizeof(cl_mem), &clDepth);
@@ -71,29 +75,22 @@ int main()
 
   size_t global[2] = {WIDTH, HEIGHT};
   Color* pixelBuffer = (Color*)malloc(WIDTH * HEIGHT * sizeof(Color));
-
+        
+  Mat4 model = MatTransform((Vec3){0.0f, 0.0f, 5.0f}, (Vec3){0.0f, 0.0f, 0.0f}, (Vec3){0.5f, 0.5f, 0.5f});
+  clEnqueueWriteBuffer(cl.queue, transformBuffer, CL_TRUE, 0, sizeof(Mat4), &model, 0, NULL, NULL);
+  clEnqueueWriteBuffer(cl.queue, projectionBuffer, CL_TRUE, 0, sizeof(Mat4), &camera.proj, 0, NULL, NULL);
 
   while (!WindowShouldClose())
   {
       float deltaTime = GetFrameTime();
-      // --- Keyboard input ---
       if (IsKeyDown(KEY_W)) ProcessKeyboard(&camera, FORWARD, deltaTime);
       if (IsKeyDown(KEY_S)) ProcessKeyboard(&camera, BACKWARD, deltaTime);
       if (IsKeyDown(KEY_A)) ProcessKeyboard(&camera, LEFT, deltaTime);
       if (IsKeyDown(KEY_D)) ProcessKeyboard(&camera, RIGHT, deltaTime);
+
       updateCamera(&camera, GetMouseX(), GetMouseY(), true);
-      printf("%f %f %f \n", camera.Position.x,camera.Position.y,camera.Position.z);
 
-      Mat4 model = MatTransform((Vec3){0.0f, 0.0f, 5.0f}, (Vec3){0.0f, 0.0f, 0.0f}, (Vec3){0.5f, 0.5f, 0.5f});
-
-
-      camera.look_at = MatLookAt(camera.Position, Vec3Add(camera.Position, camera.Front), camera.Up);
-      Vec3Print(&camera.Front);
-
-      Mat4 mvp = MatMul(camera.proj, MatMul(camera.look_at, model));
-      /*MatPrint(&mvp);*/
-
-      clEnqueueWriteBuffer(cl.queue, mvpBuffer, CL_TRUE, 0, sizeof(Mat4), &mvp, 0, NULL, NULL);
+      clEnqueueWriteBuffer(cl.queue, viewBuffer, CL_TRUE, 0, sizeof(Mat4), &camera.look_at, 0, NULL, NULL);
 
       clEnqueueNDRangeKernel(cl.queue, vertexKernel, 1, NULL, &vertexGlobal, NULL, 0, NULL, NULL);
       clEnqueueNDRangeKernel(cl.queue, fragmentKernel, 2, NULL, global, NULL, 0, NULL, NULL);
