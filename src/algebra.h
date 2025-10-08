@@ -10,6 +10,8 @@ inline float DegToRad(float degrees)
 
 typedef struct Vec2 { float x,y; } Vec2;
 typedef struct Vec3 { float x,y,z; } Vec3;
+typedef struct Vec4 { float x,y,z,w; } Vec4;
+
 inline void Vec2Print(Vec2* v)
 {
   printf("[ %f %f ]\n", v->x,v->y);
