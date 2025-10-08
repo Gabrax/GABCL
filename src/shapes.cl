@@ -102,41 +102,53 @@ __kernel void fragment_kernel(
 
   for (int tri = 0; tri < numTriangles; tri++)
   {
-      __global Triangle* t = &tris[tri];
+    __global Triangle* t = &tris[tri];
 
-      float2 v0 = (float2)(projVerts[tri*3 + 0].x, projVerts[tri*3 + 0].y);
-      float2 v1 = (float2)(projVerts[tri*3 + 1].x, projVerts[tri*3 + 1].y);
-      float2 v2 = (float2)(projVerts[tri*3 + 2].x, projVerts[tri*3 + 2].y);
+    float2 v0 = (float2)(projVerts[tri*3 + 0].x, projVerts[tri*3 + 0].y);
+    float2 v1 = (float2)(projVerts[tri*3 + 1].x, projVerts[tri*3 + 1].y);
+    float2 v2 = (float2)(projVerts[tri*3 + 2].x, projVerts[tri*3 + 2].y);
 
-      float3 p0 = (float3)(t->vertex[0].x,t->vertex[0].y,t->vertex[0].z);
-      float3 p1 = (float3)(t->vertex[1].x,t->vertex[1].y,t->vertex[1].z);
-      float3 p2 = (float3)(t->vertex[2].x,t->vertex[2].y,t->vertex[2].z);
+    float w0 = projVerts[tri*3 + 0].w;
+    float w1 = projVerts[tri*3 + 1].w;
+    float w2 = projVerts[tri*3 + 2].w;
 
-      float3 edge1 = p1 - p0;
-      float3 edge2 = p2 - p0;
-      float3 normal = normalize(cross(edge1, edge2));
+    float3 n0 = normalize((float3)(t->normal[0].x, t->normal[0].y, t->normal[0].z));
+    float3 n1 = normalize((float3)(t->normal[1].x, t->normal[1].y, t->normal[1].z));
+    float3 n2 = normalize((float3)(t->normal[2].x, t->normal[2].y, t->normal[2].z));
 
-      float den = (v1.x - v0.x)*(v2.y - v0.y) - (v2.x - v0.x)*(v1.y - v0.y);
+    float den = (v1.x - v0.x)*(v2.y - v0.y) - (v2.x - v0.x)*(v1.y - v0.y);
 
-      float a = ((v2.y - v0.y)*(px - v0.x) - (v2.x - v0.x)*(py - v0.y)) / den;
-      float b = (-(v1.y - v0.y)*(px - v0.x) + (v1.x - v0.x)*(py - v0.y)) / den;
-      float g = 1.0f - a - b;
+    float a = ((v2.y - v0.y)*(px - v0.x) - (v2.x - v0.x)*(py - v0.y)) / den;
+    float b = (-(v1.y - v0.y)*(px - v0.x) + (v1.x - v0.x)*(py - v0.y)) / den;
+    float g = 1.0f - a - b;
 
-      if (a >= 0 && b >= 0 && g >= 0)
-      {
-          float diffuse = fmax(dot(normal, lightDir), 0.0f);
-          float lighting = clamp(ambient + diffuse, 0.0f, 1.0f);
+    float a_p = a / w0;
+    float b_p = b / w1;
+    float g_p = g / w2;
+    float sum = a_p + b_p + g_p;
 
-          float3 baseColor = (float3)(t->color.r / 255.0f, t->color.g / 255.0f, t->color.b / 255.0f);
-          float3 litColor = baseColor * lighting;
+    // Normalize
+    a_p /= sum;
+    b_p /= sum;
+    g_p /= sum;
 
-          pixels[y * width + x] = (Pixel){
-              (uchar)(litColor.x * 255.0f),
-              (uchar)(litColor.y * 255.0f),
-              (uchar)(litColor.z * 255.0f),
-              255
-          };
-      }
+    float3 normal = normalize(n0 * a_p + n1 * b_p + n2 * g_p);
+
+    if (a >= 0 && b >= 0 && g >= 0)
+    {
+      float diffuse = fmax(dot(normal, lightDir), 0.0f);
+      float lighting = clamp(ambient + diffuse, 0.0f, 1.0f);
+
+      float3 baseColor = (float3)(t->color.r / 255.0f, t->color.g / 255.0f, t->color.b / 255.0f);
+      float3 litColor = baseColor * lighting;
+
+      pixels[y * width + x] = (Pixel){
+          (uchar)(litColor.x * 255.0f),
+          (uchar)(litColor.y * 255.0f),
+          (uchar)(litColor.z * 255.0f),
+          255
+      };
+    }
   }
 }
 

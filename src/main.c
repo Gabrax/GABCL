@@ -39,6 +39,7 @@ int main()
 
   CustomModel mesh = LoadfromOBJ("res/cube.obj", (Color){0,255,0,255});
   size_t vertexGlobal = mesh.numTriangles * 3;
+  PrintMesh(&mesh);
 
   CL cl = clInit("src/shapes.cl");
 
