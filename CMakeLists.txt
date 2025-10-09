@@ -31,11 +31,23 @@ endif()
 include(FetchContent)
 
 FetchContent_Declare(
+    assimp
+    GIT_REPOSITORY https://github.com/assimp/assimp.git
+    GIT_TAG v5.3.0
+)
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "Disable Assimp tests" FORCE)
+set(ASSIMP_BUILD_DOCS OFF CACHE BOOL "Disable Assimp documentation" FORCE)
+
+FetchContent_Declare(
     raylib
     GIT_REPOSITORY "https://github.com/raysan5/raylib.git"
     GIT_TAG "master"
     GIT_PROGRESS TRUE
 )
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
   OpenCL_SDK
@@ -50,7 +62,7 @@ set(OPENCL_SDK_BUILD_VULKAN_SAMPLES OFF CACHE BOOL "Disable Vulkan samples" FORC
 set(OPENCL_SDK_TEST_SAMPLES OFF CACHE BOOL "Disable sample tests" FORCE)
 set(OPENCL_SDK_FETCH_DEPENDENCIES ON CACHE BOOL "Fetch dependencies automatically" FORCE)
 
-FetchContent_MakeAvailable(raylib OpenCL_SDK)
+FetchContent_MakeAvailable(raylib OpenCL_SDK assimp)
 
 add_subdirectory(vendor/stb_ds)
 
@@ -58,4 +70,4 @@ file(GLOB_RECURSE MY_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/
 
 target_sources("${CMAKE_PROJECT_NAME}" PRIVATE ${MY_SOURCES})
 
-target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE raylib OpenCL::OpenCL stb_ds)
+target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE assimp raylib OpenCL::OpenCL stb_ds)

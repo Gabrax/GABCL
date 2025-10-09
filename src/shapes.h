@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include "algebra.h"
 #include "raylib.h"
+#include <assimp/cimport.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 typedef struct {
     Vec3 vertex[3]; 
@@ -38,6 +41,61 @@ CustomModel MakeMeshFromVertices(const Vec3* verts, int count, Color color)
     }
 
     model.numTriangles = arrlen(model.triangles);
+    return model;
+}
+
+CustomModel LoadModel_Assimp(const char* filename, Color color)
+{
+    CustomModel model = {0};
+
+    const struct aiScene* scene = aiImportFile(
+        filename,
+        aiProcess_Triangulate |          // convert all faces to triangles
+        aiProcess_JoinIdenticalVertices |// merge shared vertices
+        aiProcess_GenSmoothNormals |     // generate smooth vertex normals
+        aiProcess_ImproveCacheLocality | // better vertex cache usage
+        aiProcess_OptimizeMeshes         // reduce draw calls
+    );
+
+    if (!scene || scene->mNumMeshes == 0) {
+        fprintf(stderr, "Failed to load model: %s\n", filename);
+        aiReleaseImport(scene);
+        return model;
+    }
+
+    for (unsigned int m = 0; m < scene->mNumMeshes; m++) {
+        const struct aiMesh* mesh = scene->mMeshes[m];
+
+        for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
+            const struct aiFace* face = &mesh->mFaces[f];
+            if (face->mNumIndices != 3) continue; // skip non-triangles
+
+            Triangle tri = {0};
+            for (int i = 0; i < 3; i++) {
+                unsigned int idx = face->mIndices[i];
+                if (mesh->mVertices) {
+                    tri.vertex[i].x = mesh->mVertices[idx].x;
+                    tri.vertex[i].y = mesh->mVertices[idx].y;
+                    tri.vertex[i].z = mesh->mVertices[idx].z;
+                }
+                if (mesh->mNormals) {
+                    tri.normal[i].x = mesh->mNormals[idx].x;
+                    tri.normal[i].y = mesh->mNormals[idx].y;
+                    tri.normal[i].z = mesh->mNormals[idx].z;
+                }
+                if (mesh->mTextureCoords[0]) {
+                    tri.uv[i].x = mesh->mTextureCoords[0][idx].x;
+                    tri.uv[i].y = mesh->mTextureCoords[0][idx].y;
+                }
+            }
+            tri.color = color;
+            arrpush(model.triangles, tri);
+        }
+    }
+
+    model.numTriangles = arrlen(model.triangles);
+    aiReleaseImport(scene);
+
     return model;
 }
 
@@ -139,6 +197,7 @@ inline CustomModel LoadfromOBJ(const char* filename, Color color)
 
     return mesh;
 }
+
 void PrintMesh(const CustomModel* model)
 {
   for (int i = 0; i < model->numTriangles; i++) {

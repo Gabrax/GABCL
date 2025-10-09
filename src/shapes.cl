@@ -31,7 +31,8 @@ __kernel void vertex_kernel(
     __global Mat4* transform, // model matrix
     int numTriangles,
     int width,
-    int height,__global Vec3* cameraPos)
+    int height,
+    __global Vec3* cameraPos,__global float3* fragPos)
 {
   int i = get_global_id(0);
   if (i >= numTriangles * 3) return;
@@ -79,7 +80,13 @@ __kernel void vertex_kernel(
   float sy = (ndc_y * 0.5f + 0.5f) * (float)height;
   float sz = ndc_z * 0.5f + 0.5f;
 
+  fragPos[i] = (float3)(v_view.x, v_view.y, v_view.z);
   projVerts[i] = (float4)(sx, sy, sz, v_clip.w);
+}
+
+inline float3 reflect(float3 I, float3 N)
+{
+    return I - 2.0f * dot(N, I) * N;
 }
 
 __kernel void fragment_kernel(
@@ -88,68 +95,89 @@ __kernel void fragment_kernel(
     __global float4* projVerts,
     int numTriangles,
     int width,
-    int height)
+    int height,
+    __global float3* viewPos,
+    __global float3* fragPos)
 {
-  int x = get_global_id(0);
-  int y = get_global_id(1);
-  if (x >= width || y >= height) return;
+    int x = get_global_id(0);
+    int y = get_global_id(1);
+    if (x >= width || y >= height) return;
 
-  float px = (float)x;
-  float py = (float)y;
+    float px = (float)x;
+    float py = (float)y;
 
-  float3 lightDir = normalize((float3)(0.0f, 5.0f, -1.0f));
-  float ambient = 0.15f;
+    // Light settings
+    float3 lightPos = (float3)(0.0f, 5.0f, -1.0f);
+    float3 lightColor = (float3)(0.8f, 0.8f, 1.0f); 
+    float ambient = 0.15f;
+    float specularStrength = 1.5f;
+    float shininess = 32.0f;
 
-  for (int tri = 0; tri < numTriangles; tri++)
-  {
-    __global Triangle* t = &tris[tri];
-
-    float2 v0 = (float2)(projVerts[tri*3 + 0].x, projVerts[tri*3 + 0].y);
-    float2 v1 = (float2)(projVerts[tri*3 + 1].x, projVerts[tri*3 + 1].y);
-    float2 v2 = (float2)(projVerts[tri*3 + 2].x, projVerts[tri*3 + 2].y);
-
-    float w0 = projVerts[tri*3 + 0].w;
-    float w1 = projVerts[tri*3 + 1].w;
-    float w2 = projVerts[tri*3 + 2].w;
-
-    float3 n0 = normalize((float3)(t->normal[0].x, t->normal[0].y, t->normal[0].z));
-    float3 n1 = normalize((float3)(t->normal[1].x, t->normal[1].y, t->normal[1].z));
-    float3 n2 = normalize((float3)(t->normal[2].x, t->normal[2].y, t->normal[2].z));
-
-    float den = (v1.x - v0.x)*(v2.y - v0.y) - (v2.x - v0.x)*(v1.y - v0.y);
-
-    float a = ((v2.y - v0.y)*(px - v0.x) - (v2.x - v0.x)*(py - v0.y)) / den;
-    float b = (-(v1.y - v0.y)*(px - v0.x) + (v1.x - v0.x)*(py - v0.y)) / den;
-    float g = 1.0f - a - b;
-
-    float a_p = a / w0;
-    float b_p = b / w1;
-    float g_p = g / w2;
-    float sum = a_p + b_p + g_p;
-
-    // Normalize
-    a_p /= sum;
-    b_p /= sum;
-    g_p /= sum;
-
-    float3 normal = normalize(n0 * a_p + n1 * b_p + n2 * g_p);
-
-    if (a >= 0 && b >= 0 && g >= 0)
+    for (int tri = 0; tri < numTriangles; tri++)
     {
-      float diffuse = fmax(dot(normal, lightDir), 0.0f);
-      float lighting = clamp(ambient + diffuse, 0.0f, 1.0f);
+        __global Triangle* t = &tris[tri];
 
-      float3 baseColor = (float3)(t->color.r / 255.0f, t->color.g / 255.0f, t->color.b / 255.0f);
-      float3 litColor = baseColor * lighting;
+        float2 v0 = (float2)(projVerts[tri*3 + 0].x, projVerts[tri*3 + 0].y);
+        float2 v1 = (float2)(projVerts[tri*3 + 1].x, projVerts[tri*3 + 1].y);
+        float2 v2 = (float2)(projVerts[tri*3 + 2].x, projVerts[tri*3 + 2].y);
 
-      pixels[y * width + x] = (Pixel){
-          (uchar)(litColor.x * 255.0f),
-          (uchar)(litColor.y * 255.0f),
-          (uchar)(litColor.z * 255.0f),
-          255
-      };
+        float w0 = projVerts[tri*3 + 0].w;
+        float w1 = projVerts[tri*3 + 1].w;
+        float w2 = projVerts[tri*3 + 2].w;
+
+        float den = (v1.x - v0.x)*(v2.y - v0.y) - (v2.x - v0.x)*(v1.y - v0.y);
+        float a = ((v2.y - v0.y)*(px - v0.x) - (v2.x - v0.x)*(py - v0.y)) / den;
+        float b = (-(v1.y - v0.y)*(px - v0.x) + (v1.x - v0.x)*(py - v0.y)) / den;
+        float g = 1.0f - a - b;
+
+        if (a >= 0 && b >= 0 && g >= 0)
+        {
+            // Perspective-correct barycentric coordinates
+            float a_p = a / w0;
+            float b_p = b / w1;
+            float g_p = g / w2;
+            float sum = a_p + b_p + g_p;
+            a_p /= sum;
+            b_p /= sum;
+            g_p /= sum;
+
+            // Interpolated normal
+            /*float3 n0 = normalize((float3)(t->normal[0].x, t->normal[0].y, t->normal[0].z));*/
+            /*float3 n1 = normalize((float3)(t->normal[1].x, t->normal[1].y, t->normal[1].z));*/
+            /*float3 n2 = normalize((float3)(t->normal[2].x, t->normal[2].y, t->normal[2].z));*/
+            /*float3 normal = normalize(n0 * a_p + n1 * b_p + n2 * g_p);*/
+
+            // Interpolated fragment position (FragPos)
+            float3 f0 = fragPos[tri*3 + 0];
+            float3 f1 = fragPos[tri*3 + 1];
+            float3 f2 = fragPos[tri*3 + 2];
+            float3 fragPosition = f0 * a_p + f1 * b_p + f2 * g_p;
+
+            float3 edge1 = f1 - f0;
+            float3 edge2 = f2 - f0;
+            float3 normal = normalize(cross(edge1, edge2));
+
+            // Lighting calculations
+            float3 lightDir = normalize(lightPos - fragPosition);
+            float3 viewDir = normalize(*viewPos - fragPosition);
+            float diffuse = fmax(dot(normal, lightDir), 0.0f);
+            float3 reflectDir = reflect(-lightDir, normal);
+            float spec = pow(fmax(dot(viewDir, reflectDir), 0.0f), shininess);
+            float3 specular = specularStrength * spec * lightColor;
+
+            float3 baseColor = (float3)(t->color.r / 255.0f, t->color.g / 255.0f, t->color.b / 255.0f);
+
+            float3 litColor = (ambient + diffuse  + specular) * baseColor;
+            litColor = clamp(litColor, 0.0f, 1.0f);
+
+            pixels[y * width + x] = (Pixel){
+                (uchar)(litColor.x * 255.0f),
+                (uchar)(litColor.y * 255.0f),
+                (uchar)(litColor.z * 255.0f),
+                255
+            };
+        }
     }
-  }
 }
 
 // WIREFRAME
