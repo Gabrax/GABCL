@@ -32,7 +32,7 @@ __kernel void vertex_kernel(
     int numTriangles,
     int width,
     int height,
-    __global Vec3* cameraPos,__global float3* fragPos)
+    __global float3* cameraPos,__global float3* fragPos)
 {
   int i = get_global_id(0);
   if (i >= numTriangles * 3) return;
@@ -42,19 +42,23 @@ __kernel void vertex_kernel(
 
   __global Triangle* tri = &tris[triIdx];
   float4 vert = (float4)(tri->vertex[vertIdx].x,tri->vertex[vertIdx].y,tri->vertex[vertIdx].z, 1.0f);
-  float3 normal = (float3)(tri->normal[vertIdx].x,tri->normal[vertIdx].y,tri->normal[vertIdx].z);
-  float3 camPos = (float3)(cameraPos->x,cameraPos->y,cameraPos->z);
 
-  // --- Model → View → Projection multiplication ---
   float4 v_model;
   v_model.x = vert.x * transform->x0 + vert.y * transform->x1 + vert.z * transform->x2 + vert.w * transform->x3;
   v_model.y = vert.x * transform->y0 + vert.y * transform->y1 + vert.z * transform->y2 + vert.w * transform->y3;
   v_model.z = vert.x * transform->z0 + vert.y * transform->z1 + vert.z * transform->z2 + vert.w * transform->z3;
   v_model.w = vert.x * transform->w0 + vert.y * transform->w1 + vert.z * transform->w2 + vert.w * transform->w3;
 
-  float3 camRay = (float3)(v_model.x, v_model.y, v_model.z) - camPos;
-  if (dot(normalize(normal), normalize(camRay)) > 0.0f) {
-      projVerts[i] = (float4)(-9999.0f, -9999.0f, -9999.0f,-9999.0f); // mark culled
+  float3 normal = (float3)(tri->normal[vertIdx].x,tri->normal[vertIdx].y,tri->normal[vertIdx].z);
+  float3 normal_world = normalize((float3)(
+      normal.x * transform->x0 + normal.y * transform->x1 + normal.z * transform->x2,
+      normal.x * transform->y0 + normal.y * transform->y1 + normal.z * transform->y2,
+      normal.x * transform->z0 + normal.y * transform->z1 + normal.z * transform->z2
+  ));
+
+  float3 viewDir = normalize(*cameraPos - (float3)(v_model.x, v_model.y, v_model.z));
+  if (dot(normal_world, viewDir) < 0.0f) {
+      projVerts[i] = (float4)(-9999.0f, -9999.0f, -9999.0f, -9999.0f);
       return;
   }
 
@@ -96,8 +100,7 @@ __kernel void fragment_kernel(
     int numTriangles,
     int width,
     int height,
-    __global float3* viewPos,
-    __global float3* fragPos)
+    __global float* depthBuffer, __global float3* cameraPos, __global float3* fragPos)
 {
     int x = get_global_id(0);
     int y = get_global_id(1);
@@ -106,80 +109,61 @@ __kernel void fragment_kernel(
     float px = (float)x;
     float py = (float)y;
 
-    // Light settings
-    float3 lightPos = (float3)(0.0f, 5.0f, -1.0f);
-    float3 lightColor = (float3)(0.8f, 0.8f, 1.0f); 
-    float ambient = 0.15f;
-    float specularStrength = 1.5f;
-    float shininess = 32.0f;
+    int idx = y * width + x;
 
     for (int tri = 0; tri < numTriangles; tri++)
     {
-        __global Triangle* t = &tris[tri];
+        float4 pv0 = projVerts[tri*3 + 0];
+        float4 pv1 = projVerts[tri*3 + 1];
+        float4 pv2 = projVerts[tri*3 + 2];
 
-        float2 v0 = (float2)(projVerts[tri*3 + 0].x, projVerts[tri*3 + 0].y);
-        float2 v1 = (float2)(projVerts[tri*3 + 1].x, projVerts[tri*3 + 1].y);
-        float2 v2 = (float2)(projVerts[tri*3 + 2].x, projVerts[tri*3 + 2].y);
+        if (pv0.w == -9999.0f || pv1.w == -9999.0f || pv2.w == -9999.0f) continue;
 
-        float w0 = projVerts[tri*3 + 0].w;
-        float w1 = projVerts[tri*3 + 1].w;
-        float w2 = projVerts[tri*3 + 2].w;
+        float2 v0 = (float2)(pv0.x, pv0.y);
+        float2 v1 = (float2)(pv1.x, pv1.y);
+        float2 v2 = (float2)(pv2.x, pv2.y);
+
+        float area2 = (v1.x - v0.x)*(v2.y - v0.y) - (v2.x - v0.x)*(v1.y - v0.y);
+
+        if (area2 <= 0.0f) continue;
 
         float den = (v1.x - v0.x)*(v2.y - v0.y) - (v2.x - v0.x)*(v1.y - v0.y);
         float a = ((v2.y - v0.y)*(px - v0.x) - (v2.x - v0.x)*(py - v0.y)) / den;
         float b = (-(v1.y - v0.y)*(px - v0.x) + (v1.x - v0.x)*(py - v0.y)) / den;
         float g = 1.0f - a - b;
 
-        if (a >= 0 && b >= 0 && g >= 0)
+        float sum = a + b + g;
+        float invAreaSum = 1 / sum;
+        float weightA = b * invAreaSum;
+        float weightB = g * invAreaSum;
+        float weightG = a * invAreaSum;
+        float3 weights = (float3){weightA,weightB,weightG};
+
+        if ((a >= 0 && b >= 0 && g >= 0) && sum > 0)
         {
-            // Perspective-correct barycentric coordinates
-            float a_p = a / w0;
-            float b_p = b / w1;
-            float g_p = g / w2;
-            float sum = a_p + b_p + g_p;
-            a_p /= sum;
-            b_p /= sum;
-            g_p /= sum;
+            float z0 = pv0.z / pv0.w;
+            float z1 = pv1.z / pv1.w;
+            float z2 = pv2.z / pv2.w;
 
-            // Interpolated normal
-            /*float3 n0 = normalize((float3)(t->normal[0].x, t->normal[0].y, t->normal[0].z));*/
-            /*float3 n1 = normalize((float3)(t->normal[1].x, t->normal[1].y, t->normal[1].z));*/
-            /*float3 n2 = normalize((float3)(t->normal[2].x, t->normal[2].y, t->normal[2].z));*/
-            /*float3 normal = normalize(n0 * a_p + n1 * b_p + n2 * g_p);*/
+            float3 depths = (float3){z0,z1,z2};
+            float depth = 1 / dot(1 / depths,weights);
 
-            // Interpolated fragment position (FragPos)
-            float3 f0 = fragPos[tri*3 + 0];
-            float3 f1 = fragPos[tri*3 + 1];
-            float3 f2 = fragPos[tri*3 + 2];
-            float3 fragPosition = f0 * a_p + f1 * b_p + f2 * g_p;
+            if (depth > depthBuffer[idx]) return;
 
-            float3 edge1 = f1 - f0;
-            float3 edge2 = f2 - f0;
-            float3 normal = normalize(cross(edge1, edge2));
+            depthBuffer[idx] = depth;
 
-            // Lighting calculations
-            float3 lightDir = normalize(lightPos - fragPosition);
-            float3 viewDir = normalize(*viewPos - fragPosition);
-            float diffuse = fmax(dot(normal, lightDir), 0.0f);
-            float3 reflectDir = reflect(-lightDir, normal);
-            float spec = pow(fmax(dot(viewDir, reflectDir), 0.0f), shininess);
-            float3 specular = specularStrength * spec * lightColor;
-
+            __global Triangle* t = &tris[tri];
             float3 baseColor = (float3)(t->color.r / 255.0f, t->color.g / 255.0f, t->color.b / 255.0f);
 
-            float3 litColor = (ambient + diffuse  + specular) * baseColor;
-            litColor = clamp(litColor, 0.0f, 1.0f);
-
-            pixels[y * width + x] = (Pixel){
-                (uchar)(litColor.x * 255.0f),
-                (uchar)(litColor.y * 255.0f),
-                (uchar)(litColor.z * 255.0f),
+            pixels[idx] = (Pixel){
+                (uchar)(baseColor.x * 255.0f),
+                (uchar)(baseColor.y * 255.0f),
+                (uchar)(baseColor.z * 255.0f),
                 255
             };
         }
     }
 }
-
 // WIREFRAME
 /*__kernel void fragment_kernel(*/
 /*    __global Pixel* pixels,*/

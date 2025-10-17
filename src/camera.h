@@ -12,13 +12,13 @@ typedef enum Camera_Movement {
 
 typedef struct 
 {
-  Vec3 Position;
-  Vec3 Front;
-  Vec3 Up;
-  Vec3 Right;
-  Vec3 WorldUp;
-  Mat4 proj;
-  Mat4 look_at;
+  float3 Position;
+  float3 Front;
+  float3 Up;
+  float3 Right;
+  float3 WorldUp;
+  float4x4 proj;
+  float4x4 look_at;
   float near_plane;
   float far_plane;
   float fov;
@@ -71,7 +71,7 @@ void updateCamera(GAB_Camera* camera, float mouseX, float mouseY, bool constrain
       if (camera->pitch < -89.0f) camera->pitch = -89.0f;
   }
 
-  Vec3 front;
+  float3 front;
   front.x = cosf(DegToRad(camera->yaw)) * cosf(DegToRad(camera->pitch));
   front.y = sinf(DegToRad(camera->pitch));
   front.z = sinf(DegToRad(camera->yaw)) * cosf(DegToRad(camera->pitch));

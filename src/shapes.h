@@ -9,44 +9,30 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+#include <stdlib.h>   // for rand()
+#include <time.h>     // for seeding
+
 typedef struct {
-    Vec3 vertex[3]; 
-    Vec2 uv[3];
-    Vec3 normal[3];
+    float3 vertex[3]; 
+    float2 uv[3];
+    float3 normal[3];
     Color color;
 } Triangle;
-
-static inline Triangle MakeTriangle(Vec3 p1, Vec3 p2, Vec3 p3, Color color)
-{
-  Triangle t;
-  t.vertex[0] = p1;
-  t.vertex[1] = p2;
-  t.vertex[2] = p3;
-  t.color = color;
-  return t;
-}
 
 typedef struct {
     Triangle* triangles;   
     size_t numTriangles;
 } CustomModel;
 
-CustomModel MakeMeshFromVertices(const Vec3* verts, int count, Color color)
-{
-    CustomModel model = {0};
-
-    for (int i = 0; i + 2 < count; i += 3) {
-        Triangle t = MakeTriangle(verts[i], verts[i+1], verts[i+2], color);
-        arrpush(model.triangles, t);
-    }
-
-    model.numTriangles = arrlen(model.triangles);
-    return model;
-}
-
 CustomModel LoadModel_Assimp(const char* filename, Color color)
 {
     CustomModel model = {0};
+
+    static int seeded = 0;
+    if (!seeded) {
+        srand((unsigned int)time(NULL));
+        seeded = 1;
+    }
 
     const struct aiScene* scene = aiImportFile(
         filename,
@@ -88,7 +74,12 @@ CustomModel LoadModel_Assimp(const char* filename, Color color)
                     tri.uv[i].y = mesh->mTextureCoords[0][idx].y;
                 }
             }
-            tri.color = color;
+            Color c;
+            c.r = rand() % 256; // 0-255
+            c.g = rand() % 256;
+            c.b = rand() % 256;
+            c.a = 255;           // fully opaque
+            tri.color = c;
             arrpush(model.triangles, tri);
         }
     }
@@ -97,105 +88,6 @@ CustomModel LoadModel_Assimp(const char* filename, Color color)
     aiReleaseImport(scene);
 
     return model;
-}
-
-inline CustomModel LoadfromOBJ(const char* filename, Color color)
-{
-    CustomModel mesh = {0};
-
-    FILE* file = fopen(filename, "r");
-    if (!file) {
-        TraceLog(LOG_ERROR, "Failed to open OBJ file: %s", filename);
-        return mesh;
-    }
-
-    Vec3* tempVerts   = NULL;
-    Vec2* tempUVs     = NULL;
-    Vec3* tempNormals = NULL;
-
-    char line[512];
-    while (fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "v ", 2) == 0) {
-            Vec3 v;
-            if (sscanf(line + 2, "%f %f %f", &v.x, &v.y, &v.z) == 3)
-                arrpush(tempVerts, v);
-        } 
-        else if (strncmp(line, "vt ", 3) == 0) {
-            Vec2 uv;
-            if (sscanf(line + 3, "%f %f", &uv.x, &uv.y) == 2)
-                arrpush(tempUVs, uv);
-        } 
-        else if (strncmp(line, "vn ", 3) == 0) {
-            Vec3 n;
-            if (sscanf(line + 3, "%f %f %f", &n.x, &n.y, &n.z) == 3)
-                arrpush(tempNormals, n);
-        } 
-        else if (strncmp(line, "f ", 2) == 0) {
-            char* token = strtok(line + 2, " \t\n");
-            int vIdx[4], uvIdx[4], nIdx[4];
-            int idxCount = 0;
-
-            while (token && idxCount < 4) {
-                int vi = 0, ti = 0, ni = 0;
-                if (strstr(token, "//"))
-                    sscanf(token, "%d//%d", &vi, &ni);
-                else if (sscanf(token, "%d/%d/%d", &vi, &ti, &ni) == 3);
-                else if (sscanf(token, "%d/%d", &vi, &ti) == 2);
-                else
-                    sscanf(token, "%d", &vi);
-
-                if (vi < 0) vi = arrlen(tempVerts) + vi + 1;
-                if (ti < 0) ti = arrlen(tempUVs) + ti + 1;
-                if (ni < 0) ni = arrlen(tempNormals) + ni + 1;
-
-                vIdx[idxCount]  = vi ? vi - 1 : -1;
-                uvIdx[idxCount] = ti ? ti - 1 : -1;
-                nIdx[idxCount]  = ni ? ni - 1 : -1;
-
-                idxCount++;
-                token = strtok(NULL, " \t\n");
-            }
-
-            int triOrder[2][3] = { {0,1,2}, {0,2,3} };
-            int triCount = (idxCount == 4 ? 2 : 1);
-
-            for (int t = 0; t < triCount; t++) {
-                Triangle tri = {0};
-                for (int j = 0; j < 3; j++) {
-                    int idx = triOrder[t][j];
-                    if (vIdx[idx]  >= 0) tri.vertex[j] = tempVerts[vIdx[idx]];
-                    if (uvIdx[idx] >= 0) tri.uv[j]     = tempUVs[uvIdx[idx]];
-                    if (nIdx[idx]  >= 0) tri.normal[j] = tempNormals[nIdx[idx]];
-                }
-                tri.color = color;
-
-                Vec3 a = tri.vertex[0];
-                Vec3 b = tri.vertex[1];
-                Vec3 c = tri.vertex[2];
-
-                Vec3 ab = Vec3Sub(b, a);
-                Vec3 ac = Vec3Sub(c, a);
-                Vec3 n  = Vec3Cross(ab, ac);
-
-                if (n.z > 0.0f) { // flip if clockwise (OpenGL convention)
-                    Vec3 tmpv = tri.vertex[1];  tri.vertex[1] = tri.vertex[2];  tri.vertex[2] = tmpv;
-                    Vec2 tmpuv = tri.uv[1];     tri.uv[1]    = tri.uv[2];      tri.uv[2]    = tmpuv;
-                    Vec3 tmpn  = tri.normal[1]; tri.normal[1]= tri.normal[2];   tri.normal[2]= tmpn;
-                }
-
-                arrpush(mesh.triangles, tri);
-            }
-        }
-    }
-
-    fclose(file);
-
-    mesh.numTriangles = arrlen(mesh.triangles);
-    arrfree(tempVerts);
-    arrfree(tempUVs);
-    arrfree(tempNormals);
-
-    return mesh;
 }
 
 void PrintMesh(const CustomModel* model)

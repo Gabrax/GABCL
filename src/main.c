@@ -1,3 +1,5 @@
+#include <float.h>
+#include <limits.h>
 #include <stdio.h>
 #include <math.h>
 #include "CL/cl.h"
@@ -19,14 +21,14 @@ int main()
   int width = WIDTH, height = HEIGHT;
 
   GAB_Camera camera = {0};
-  camera.Position = (Vec3){0.0f, 0.0f, 0.0f};
-  camera.WorldUp = (Vec3){0.0f, 1.0f, 0.0f};
-  camera.Front = (Vec3){0.0f, 0.0f, 1.0f};
+  camera.Position = (float3){0.0f, 0.0f, 0.0f};
+  camera.WorldUp = (float3){0.0f, 1.0f, 0.0f};
+  camera.Front = (float3){0.0f, 0.0f, 1.0f};
   camera.aspect_ratio = (float)GetScreenWidth() / (float)GetScreenHeight();
   camera.near_plane = 0.01f;
   camera.far_plane = 1000.0f;
-  camera.fov = 90.0f;
-  camera.fov_rad = camera.fov * (3.14159265f / 180.0f);  
+  camera.fov = 60.0f;
+  camera.fov_rad = DegToRad(camera.fov);  
   camera.proj = MatPerspective(camera.fov_rad, camera.aspect_ratio, camera.near_plane, camera.far_plane);
   camera.look_at = MatLookAt(camera.Position, Vec3Add(camera.Position, camera.Front), camera.WorldUp);
   camera.yaw = 90.0f;
@@ -37,7 +39,7 @@ int main()
   camera.lastY = HEIGHT / 2.0f;
   camera.firstMouse = true;
 
-  CustomModel mesh = LoadModel_Assimp("res/cube.obj", (Color){0,255,0,255});
+  CustomModel mesh = LoadModel_Assimp("res/dragon.obj", (Color){0,255,0,255});
   PrintMesh(&mesh);
   size_t vertexGlobal = mesh.numTriangles * 3;
 
@@ -48,13 +50,14 @@ int main()
   cl_kernel fragmentKernel = clCreateKernel(cl.program, "fragment_kernel", NULL);
 
   cl_mem frameBuffer   = clCreateBuffer(cl.context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(Color), NULL, NULL);
+  cl_mem depthBuffer = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(float) * WIDTH * HEIGHT, NULL, &cl.err);
   cl_mem trisBuffer = clCreateBuffer(cl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,sizeof(Triangle) * mesh.numTriangles, mesh.triangles, &cl.err);
-  cl_mem mvpVertsBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(Vec4) * mesh.numTriangles * 3, NULL, NULL);
-  cl_mem fragPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(Vec3), NULL, NULL);
-  cl_mem projectionBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(Mat4), NULL, &cl.err);
-  cl_mem viewBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(Mat4), NULL, &cl.err);
-  cl_mem transformBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(Mat4), NULL, &cl.err);
-  cl_mem cameraPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(Vec3), NULL, &cl.err);
+  cl_mem mvpVertsBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(float4) * mesh.numTriangles * 3, NULL, NULL);
+  cl_mem fragPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(float3), NULL, NULL);
+  cl_mem projectionBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(float4x4), NULL, &cl.err);
+  cl_mem viewBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(float4x4), NULL, &cl.err);
+  cl_mem transformBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(float4x4), NULL, &cl.err);
+  cl_mem cameraPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(float3), NULL, &cl.err);
 
   clSetKernelArg(clearKernel, 0, sizeof(cl_mem), &frameBuffer);
   clSetKernelArg(clearKernel, 1, sizeof(int), &width);
@@ -77,8 +80,9 @@ int main()
   clSetKernelArg(fragmentKernel, 3, sizeof(int), &mesh.numTriangles);
   clSetKernelArg(fragmentKernel, 4, sizeof(int), &width);
   clSetKernelArg(fragmentKernel, 5, sizeof(int), &height);
-  clSetKernelArg(fragmentKernel, 6, sizeof(cl_mem), &cameraPosBuffer);
-  clSetKernelArg(fragmentKernel, 7, sizeof(cl_mem), &fragPosBuffer);
+  clSetKernelArg(fragmentKernel, 6, sizeof(cl_mem), &depthBuffer);
+  clSetKernelArg(fragmentKernel, 7, sizeof(cl_mem), &cameraPosBuffer);
+  clSetKernelArg(fragmentKernel, 8, sizeof(cl_mem), &fragPosBuffer);
 
   Image img = GenImageColor(WIDTH, HEIGHT, BLACK);
   Texture2D texture = LoadTextureFromImage(img);
@@ -87,13 +91,15 @@ int main()
   size_t global[2] = {WIDTH, HEIGHT};
   Color* pixelBuffer = (Color*)malloc(WIDTH * HEIGHT * sizeof(Color));
         
-  Mat4 model = MatTransform((Vec3){0.0f, 0.0f, 5.0f}, (Vec3){0.0f, 0.0f, 0.0f}, (Vec3){0.5f, 0.5f, 0.5f});
-  clEnqueueWriteBuffer(cl.queue, transformBuffer, CL_TRUE, 0, sizeof(Mat4), &model, 0, NULL, NULL);
-  clEnqueueWriteBuffer(cl.queue, projectionBuffer, CL_TRUE, 0, sizeof(Mat4), &camera.proj, 0, NULL, NULL);
+  float4x4 model = MatTransform((float3){0.0f, 0.0f, 5.0f}, (float3){0.0f, 0.0f, 0.0f}, (float3){0.5f, 0.5f, 0.5f});
+  clEnqueueWriteBuffer(cl.queue, transformBuffer, CL_TRUE, 0, sizeof(float4x4), &model, 0, NULL, NULL);
+  clEnqueueWriteBuffer(cl.queue, projectionBuffer, CL_TRUE, 0, sizeof(float4x4), &camera.proj, 0, NULL, NULL);
 
+  float* hostDepth = (float*)malloc(sizeof(float) * WIDTH * HEIGHT);
+
+  float t = 0;
   while (!WindowShouldClose())
   {
-
     float deltaTime = GetFrameTime();
     if (IsKeyDown(KEY_W)) ProcessKeyboard(&camera, FORWARD, deltaTime);
     if (IsKeyDown(KEY_S)) ProcessKeyboard(&camera, BACKWARD, deltaTime);
@@ -102,16 +108,22 @@ int main()
 
     updateCamera(&camera, GetMouseX(), GetMouseY(), true);
 
-    clEnqueueWriteBuffer(cl.queue, cameraPosBuffer, CL_TRUE, 0, sizeof(Vec3), &camera.Position, 0, NULL, NULL);
-    clEnqueueWriteBuffer(cl.queue, viewBuffer, CL_TRUE, 0, sizeof(Mat4), &camera.look_at, 0, NULL, NULL);
+    /*t+= 1;*/
+    /*model = MatTransform((Vec3){0.0f, 0.0f, 5.0f}, (Vec3){0.0f, t, 0.0f}, (Vec3){2.5f, 2.5f, 2.5f});*/
+    /*clEnqueueWriteBuffer(cl.queue, transformBuffer, CL_TRUE, 0, sizeof(Mat4), &model, 0, NULL, NULL);*/
+
+    for(int i = 0; i < WIDTH*HEIGHT; i++) hostDepth[i] = FLT_MAX;
+    clEnqueueWriteBuffer(cl.queue, depthBuffer, CL_TRUE, 0, sizeof(float) * WIDTH * HEIGHT, hostDepth, 0, NULL, NULL);
+    clEnqueueWriteBuffer(cl.queue, cameraPosBuffer, CL_TRUE, 0, sizeof(float3), &camera.Position, 0, NULL, NULL);
+    clEnqueueWriteBuffer(cl.queue, viewBuffer, CL_TRUE, 0, sizeof(float4x4), &camera.look_at, 0, NULL, NULL);
 
     clEnqueueNDRangeKernel(cl.queue, clearKernel, 2, NULL, global, NULL, 0, NULL, NULL);
     clEnqueueNDRangeKernel(cl.queue, vertexKernel, 1, NULL, &vertexGlobal, NULL, 0, NULL, NULL);
     clEnqueueNDRangeKernel(cl.queue, fragmentKernel, 2, NULL, global, NULL, 0, NULL, NULL);
 
     clEnqueueReadBuffer(cl.queue, frameBuffer, CL_TRUE, 0, WIDTH * HEIGHT * sizeof(Color), pixelBuffer, 0, NULL, NULL);
-    UpdateTexture(texture, pixelBuffer);
 
+    UpdateTexture(texture, pixelBuffer);
     BeginDrawing();
     DrawTexture(texture, 0, 0, WHITE);
     EndDrawing();
