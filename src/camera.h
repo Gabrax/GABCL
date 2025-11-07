@@ -1,6 +1,8 @@
 #pragma once
 
-#include "algebra.h"
+#define GABMATH_IMPLEMENTATION
+#include "gab_math.h"
+
 #include <stdbool.h>
 
 typedef enum Camera_Movement {
@@ -12,13 +14,13 @@ typedef enum Camera_Movement {
 
 typedef struct 
 {
-  float3 Position;
-  float3 Front;
-  float3 Up;
-  float3 Right;
-  float3 WorldUp;
-  float4x4 proj;
-  float4x4 look_at;
+  f3 Position;
+  f3 Front;
+  f3 Up;
+  f3 Right;
+  f3 WorldUp;
+  f4x4 proj;
+  f4x4 look_at;
   float near_plane;
   float far_plane;
   float fov;
@@ -38,10 +40,10 @@ void ProcessKeyboard(GAB_Camera* camera, Camera_Movement direction, float deltaT
 {
   float velocity = camera->speed * deltaTime;
 
-  if (direction == FORWARD) camera->Position = Vec3Add(camera->Position, Vec3MultiplyScalar(camera->Front, velocity));
-  if (direction == BACKWARD) camera->Position = Vec3Add(camera->Position, Vec3MultiplyScalar(camera->Front, -velocity));
-  if (direction == LEFT) camera->Position = Vec3Add(camera->Position, Vec3MultiplyScalar(camera->Right, velocity));
-  if (direction == RIGHT) camera->Position = Vec3Add(camera->Position, Vec3MultiplyScalar(camera->Right, -velocity));
+  if (direction == FORWARD) camera->Position = f3Add(camera->Position, f3MulS(camera->Front, velocity));
+  if (direction == BACKWARD) camera->Position = f3Add(camera->Position, f3MulS(camera->Front, -velocity));
+  if (direction == LEFT) camera->Position = f3Add(camera->Position, f3MulS(camera->Right, velocity));
+  if (direction == RIGHT) camera->Position = f3Add(camera->Position, f3MulS(camera->Right, -velocity));
 }
 void updateCamera(GAB_Camera* camera, float mouseX, float mouseY, bool constrainPitch)
 {
@@ -71,14 +73,14 @@ void updateCamera(GAB_Camera* camera, float mouseX, float mouseY, bool constrain
       if (camera->pitch < -89.0f) camera->pitch = -89.0f;
   }
 
-  float3 front;
+  f3 front;
   front.x = cosf(DegToRad(camera->yaw)) * cosf(DegToRad(camera->pitch));
   front.y = sinf(DegToRad(camera->pitch));
   front.z = sinf(DegToRad(camera->yaw)) * cosf(DegToRad(camera->pitch));
-  camera->Front = Vec3Norm(front);
+  camera->Front = f3Norm(front);
 
-  camera->Right = Vec3Norm(Vec3Cross(camera->Front, camera->WorldUp));
-  camera->Up    = Vec3Norm(Vec3Cross(camera->Right, camera->Front));
+  camera->Right = f3Norm(f3Cross(camera->Front, camera->WorldUp));
+  camera->Up    = f3Norm(f3Cross(camera->Right, camera->Front));
 
-  camera->look_at = MatLookAt(camera->Position, Vec3Add(camera->Position, camera->Front), camera->Up);
+  camera->look_at = MatLookAt(camera->Position, f3Add(camera->Position, camera->Front), camera->Up);
 }

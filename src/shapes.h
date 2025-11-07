@@ -3,7 +3,7 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 #include <stdio.h>
-#include "algebra.h"
+#include "gab_math.h"
 #include "raylib.h"
 #include <assimp/cimport.h>
 #include <assimp/scene.h>
@@ -13,9 +13,9 @@
 #include <time.h>     // for seeding
 
 typedef struct {
-    float3 vertex[3]; 
-    float2 uv[3];
-    float3 normal[3];
+    f3 vertex[3]; 
+    f2 uv[3];
+    f3 normal[3];
     Color color;
 } Triangle;
 

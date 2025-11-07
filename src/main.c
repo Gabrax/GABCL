@@ -1,9 +1,7 @@
 #include <float.h>
 #include <limits.h>
 #include <stdio.h>
-#include <math.h>
 #include "CL/cl.h"
-#include "algebra.h"
 #include "shapes.h"
 #include "raylib.h"
 #include "camera.h"
@@ -21,16 +19,16 @@ int main()
   int width = WIDTH, height = HEIGHT;
 
   GAB_Camera camera = {0};
-  camera.Position = (float3){0.0f, 0.0f, 0.0f};
-  camera.WorldUp = (float3){0.0f, 1.0f, 0.0f};
-  camera.Front = (float3){0.0f, 0.0f, 1.0f};
+  camera.Position = (f3){0.0f, 0.0f, 0.0f};
+  camera.WorldUp = (f3){0.0f, 1.0f, 0.0f};
+  camera.Front = (f3){0.0f, 0.0f, 1.0f};
   camera.aspect_ratio = (float)GetScreenWidth() / (float)GetScreenHeight();
   camera.near_plane = 0.01f;
   camera.far_plane = 1000.0f;
   camera.fov = 60.0f;
   camera.fov_rad = DegToRad(camera.fov);  
   camera.proj = MatPerspective(camera.fov_rad, camera.aspect_ratio, camera.near_plane, camera.far_plane);
-  camera.look_at = MatLookAt(camera.Position, Vec3Add(camera.Position, camera.Front), camera.WorldUp);
+  camera.look_at = MatLookAt(camera.Position, f3Add(camera.Position, camera.Front), camera.WorldUp);
   camera.yaw = 90.0f;
   camera.pitch = 0.0f;
   camera.speed = 2.0f;
@@ -40,7 +38,7 @@ int main()
   camera.firstMouse = true;
 
   CustomModel mesh = LoadModel_Assimp("res/dragon.obj", (Color){0,255,0,255});
-  PrintMesh(&mesh);
+  /*PrintMesh(&mesh);*/
   size_t vertexGlobal = mesh.numTriangles * 3;
 
   CL cl = clInit("src/shapes.cl");
@@ -52,12 +50,12 @@ int main()
   cl_mem frameBuffer   = clCreateBuffer(cl.context, CL_MEM_WRITE_ONLY, WIDTH * HEIGHT * sizeof(Color), NULL, NULL);
   cl_mem depthBuffer = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(float) * WIDTH * HEIGHT, NULL, &cl.err);
   cl_mem trisBuffer = clCreateBuffer(cl.context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,sizeof(Triangle) * mesh.numTriangles, mesh.triangles, &cl.err);
-  cl_mem mvpVertsBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(float4) * mesh.numTriangles * 3, NULL, NULL);
-  cl_mem fragPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(float3), NULL, NULL);
-  cl_mem projectionBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(float4x4), NULL, &cl.err);
-  cl_mem viewBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(float4x4), NULL, &cl.err);
-  cl_mem transformBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(float4x4), NULL, &cl.err);
-  cl_mem cameraPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(float3), NULL, &cl.err);
+  cl_mem mvpVertsBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(f4) * mesh.numTriangles * 3, NULL, NULL);
+  cl_mem fragPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_WRITE, sizeof(f3), NULL, NULL);
+  cl_mem projectionBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(f4x4), NULL, &cl.err);
+  cl_mem viewBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(f4x4), NULL, &cl.err);
+  cl_mem transformBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(f4x4), NULL, &cl.err);
+  cl_mem cameraPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(f3), NULL, &cl.err);
 
   clSetKernelArg(clearKernel, 0, sizeof(cl_mem), &frameBuffer);
   clSetKernelArg(clearKernel, 1, sizeof(int), &width);
@@ -91,9 +89,9 @@ int main()
   size_t global[2] = {WIDTH, HEIGHT};
   Color* pixelBuffer = (Color*)malloc(WIDTH * HEIGHT * sizeof(Color));
         
-  float4x4 model = MatTransform((float3){0.0f, 0.0f, 5.0f}, (float3){0.0f, 0.0f, 0.0f}, (float3){0.5f, 0.5f, 0.5f});
-  clEnqueueWriteBuffer(cl.queue, transformBuffer, CL_TRUE, 0, sizeof(float4x4), &model, 0, NULL, NULL);
-  clEnqueueWriteBuffer(cl.queue, projectionBuffer, CL_TRUE, 0, sizeof(float4x4), &camera.proj, 0, NULL, NULL);
+  f4x4 model = MatTransform((f3){0.0f, 0.0f, 5.0f}, (f3){0.0f, 0.0f, 0.0f}, (f3){0.5f, 0.5f, 0.5f});
+  clEnqueueWriteBuffer(cl.queue, transformBuffer, CL_TRUE, 0, sizeof(f4x4), &model, 0, NULL, NULL);
+  clEnqueueWriteBuffer(cl.queue, projectionBuffer, CL_TRUE, 0, sizeof(f4x4), &camera.proj, 0, NULL, NULL);
 
   float* hostDepth = (float*)malloc(sizeof(float) * WIDTH * HEIGHT);
 
@@ -114,8 +112,8 @@ int main()
 
     for(int i = 0; i < WIDTH*HEIGHT; i++) hostDepth[i] = FLT_MAX;
     clEnqueueWriteBuffer(cl.queue, depthBuffer, CL_TRUE, 0, sizeof(float) * WIDTH * HEIGHT, hostDepth, 0, NULL, NULL);
-    clEnqueueWriteBuffer(cl.queue, cameraPosBuffer, CL_TRUE, 0, sizeof(float3), &camera.Position, 0, NULL, NULL);
-    clEnqueueWriteBuffer(cl.queue, viewBuffer, CL_TRUE, 0, sizeof(float4x4), &camera.look_at, 0, NULL, NULL);
+    clEnqueueWriteBuffer(cl.queue, cameraPosBuffer, CL_TRUE, 0, sizeof(f3), &camera.Position, 0, NULL, NULL);
+    clEnqueueWriteBuffer(cl.queue, viewBuffer, CL_TRUE, 0, sizeof(f4x4), &camera.look_at, 0, NULL, NULL);
 
     clEnqueueNDRangeKernel(cl.queue, clearKernel, 2, NULL, global, NULL, 0, NULL, NULL);
     clEnqueueNDRangeKernel(cl.queue, vertexKernel, 1, NULL, &vertexGlobal, NULL, 0, NULL, NULL);
