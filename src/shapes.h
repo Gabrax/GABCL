@@ -9,8 +9,8 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
-#include <stdlib.h>   // for rand()
-#include <time.h>     // for seeding
+#include <stdlib.h>
+#include <time.h>
 
 typedef struct {
     f3 vertex[3]; 
@@ -22,12 +22,11 @@ typedef struct {
 typedef struct {
     Triangle* triangles;   
     size_t numTriangles;
+    size_t numVertices;
 } CustomModel;
 
-CustomModel LoadModel_Assimp(const char* filename, Color color)
+inline void custom_model_load(CustomModel* model, const char* filename, Color color)
 {
-    CustomModel model = {0};
-
     static int seeded = 0;
     if (!seeded) {
         srand((unsigned int)time(NULL));
@@ -46,7 +45,7 @@ CustomModel LoadModel_Assimp(const char* filename, Color color)
     if (!scene || scene->mNumMeshes == 0) {
         fprintf(stderr, "Failed to load model: %s\n", filename);
         aiReleaseImport(scene);
-        return model;
+        return;
     }
 
     for (unsigned int m = 0; m < scene->mNumMeshes; m++) {
@@ -80,17 +79,16 @@ CustomModel LoadModel_Assimp(const char* filename, Color color)
             c.b = rand() % 256;
             c.a = 255;           // fully opaque
             tri.color = c;
-            arrpush(model.triangles, tri);
+            arrpush(model->triangles, tri);
         }
     }
 
-    model.numTriangles = arrlen(model.triangles);
+    model->numTriangles = arrlen(model->triangles);
+    model->numVertices = model->numTriangles * 3;
     aiReleaseImport(scene);
-
-    return model;
 }
 
-void PrintMesh(const CustomModel* model)
+inline void custom_model_print_data(const CustomModel* model)
 {
   for (int i = 0; i < model->numTriangles; i++) {
       const Triangle* t = &model->triangles[i];
@@ -117,7 +115,7 @@ void PrintMesh(const CustomModel* model)
 }
 
 // free memory
-inline void MeshFree(CustomModel* model)
+inline void custom_model_free(CustomModel* model)
 {
     arrfree(model->triangles);
     model->triangles = NULL;

@@ -16,11 +16,19 @@ typedef struct {
     Pixel color;
 } Triangle;
 
-__kernel void clear_pixels(__global Pixel* pixels, int width, int height) {
+__kernel void clear_buffers(
+    __global Pixel* pixels,
+    __global float* depth,
+    int width, int height,
+    Pixel color,
+    float depthClear
+) {
     int x = get_global_id(0);
     int y = get_global_id(1);
     if (x >= width || y >= height) return;
-    pixels[y * width + x] = (Pixel){0, 0, 0, 255};
+    int idx = y * width + x;
+    pixels[idx] = color;
+    depth[idx] = depthClear;
 }
 
 __kernel void vertex_kernel(

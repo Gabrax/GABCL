@@ -1,5 +1,4 @@
 #pragma once
-
 #define GABMATH_IMPLEMENTATION
 #include "gab_math.h"
 
@@ -33,19 +32,42 @@ typedef struct
   float lastX;
   float lastY;
   bool firstMouse;
+  float deltaTime;
 
 } GAB_Camera;
 
-void ProcessKeyboard(GAB_Camera* camera, Camera_Movement direction, float deltaTime)
+inline void camera_init(GAB_Camera* camera, int width, int height, float fov, float near_plane, float far_plane)
 {
-  float velocity = camera->speed * deltaTime;
+  camera->Position = (f3){0.0f, 0.0f, 0.0f};
+  camera->WorldUp = (f3){0.0f, 1.0f, 0.0f};
+  camera->Front = (f3){0.0f, 0.0f, 1.0f};
+  camera->aspect_ratio = (float)width / (float)height;
+  camera->near_plane = near_plane;
+  camera->far_plane = far_plane;
+  camera->fov = fov;
+  camera->fov_rad = DegToRad(camera->fov);  
+  camera->proj = MatPerspective(camera->fov_rad, camera->aspect_ratio, camera->near_plane, camera->far_plane);
+  camera->look_at = MatLookAt(camera->Position, f3Add(camera->Position, camera->Front), camera->WorldUp);
+  camera->yaw = 90.0f;
+  camera->pitch = 0.0f;
+  camera->speed = 2.0f;
+  camera->sens = 0.1f;
+  camera->lastX = width / 2.0f;
+  camera->lastY = height / 2.0f;
+  camera->firstMouse = true;
+  camera->deltaTime = 1.0/60.0f;
+}
+
+inline void camera_process_keys(GAB_Camera* camera, Camera_Movement direction)
+{
+  float velocity = camera->speed * camera->deltaTime;
 
   if (direction == FORWARD) camera->Position = f3Add(camera->Position, f3MulS(camera->Front, velocity));
   if (direction == BACKWARD) camera->Position = f3Add(camera->Position, f3MulS(camera->Front, -velocity));
   if (direction == LEFT) camera->Position = f3Add(camera->Position, f3MulS(camera->Right, velocity));
   if (direction == RIGHT) camera->Position = f3Add(camera->Position, f3MulS(camera->Right, -velocity));
 }
-void updateCamera(GAB_Camera* camera, float mouseX, float mouseY, bool constrainPitch)
+inline void camera_update(GAB_Camera* camera, float mouseX, float mouseY, bool constrainPitch)
 {
   float xoffset, yoffset;
   if (camera->firstMouse)
