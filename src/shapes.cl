@@ -101,6 +101,11 @@ inline float3 reflect(float3 I, float3 N)
     return I - 2.0f * dot(N, I) * N;
 }
 
+inline float SignedTriangleArea(float2 a, float2 b, float2 c)
+{
+    return 0.5f * ((b.x - a.x)*(c.y - a.y) - (b.y - a.y)*(c.x - a.x));
+}
+
 __kernel void fragment_kernel(
     __global Pixel* pixels,
     __global Triangle* tris,
@@ -108,16 +113,16 @@ __kernel void fragment_kernel(
     int numTriangles,
     int width,
     int height,
-    __global float* depthBuffer, __global float3* cameraPos, __global float3* fragPos)
+    __global float* depthBuffer,
+    __global float3* cameraPos,
+    __global float3* fragPos)
 {
     int x = get_global_id(0);
     int y = get_global_id(1);
     if (x >= width || y >= height) return;
 
-    float px = (float)x;
-    float py = (float)y;
-
     int idx = y * width + x;
+    float2 P = (float2)(x + 0.5f, y + 0.5f); // pixel center
 
     for (int tri = 0; tri < numTriangles; tri++)
     {
@@ -125,50 +130,41 @@ __kernel void fragment_kernel(
         float4 pv1 = projVerts[tri*3 + 1];
         float4 pv2 = projVerts[tri*3 + 2];
 
-        if (pv0.w == -9999.0f || pv1.w == -9999.0f || pv2.w == -9999.0f) continue;
+        // Skip culled
+        if (pv0.w == -9999.0f || pv1.w == -9999.0f || pv2.w == -9999.0f)
+            continue;
 
         float2 v0 = (float2)(pv0.x, pv0.y);
         float2 v1 = (float2)(pv1.x, pv1.y);
         float2 v2 = (float2)(pv2.x, pv2.y);
 
-        float area2 = (v1.x - v0.x)*(v2.y - v0.y) - (v2.x - v0.x)*(v1.y - v0.y);
+        float area = SignedTriangleArea(v0, v1, v2);
+        if (area <= 0.0f) continue;
 
-        if (area2 <= 0.0f) continue;
+        float a = SignedTriangleArea(P, v1, v2) / area;
+        float b = SignedTriangleArea(P, v2, v0) / area;
+        float g = SignedTriangleArea(P, v0, v1) / area;
 
-        float den = (v1.x - v0.x)*(v2.y - v0.y) - (v2.x - v0.x)*(v1.y - v0.y);
-        float a = ((v2.y - v0.y)*(px - v0.x) - (v2.x - v0.x)*(py - v0.y)) / den;
-        float b = (-(v1.y - v0.y)*(px - v0.x) + (v1.x - v0.x)*(py - v0.y)) / den;
-        float g = 1.0f - a - b;
-
-        float sum = a + b + g;
-        float invAreaSum = 1 / sum;
-        float weightA = b * invAreaSum;
-        float weightB = g * invAreaSum;
-        float weightG = a * invAreaSum;
-        float3 weights = (float3){weightA,weightB,weightG};
-
-        if ((a >= 0 && b >= 0 && g >= 0) && sum > 0)
+        if (a >= 0 && b >= 0 && g >= 0)
         {
             float z0 = pv0.z / pv0.w;
             float z1 = pv1.z / pv1.w;
             float z2 = pv2.z / pv2.w;
+            float depth = a*z0 + b*z1 + g*z2;
 
-            float3 depths = (float3){z0,z1,z2};
-            float depth = 1 / dot(1 / depths,weights);
+            if (depth < depthBuffer[idx])
+            {
+                __global Triangle* t = &tris[tri];
+                float3 baseColor = (float3)(t->color.r / 255.0f, t->color.g / 255.0f, t->color.b / 255.0f);
 
-            if (depth > depthBuffer[idx]) return;
-
-            depthBuffer[idx] = depth;
-
-            __global Triangle* t = &tris[tri];
-            float3 baseColor = (float3)(t->color.r / 255.0f, t->color.g / 255.0f, t->color.b / 255.0f);
-
-            pixels[idx] = (Pixel){
-                (uchar)(baseColor.x * 255.0f),
-                (uchar)(baseColor.y * 255.0f),
-                (uchar)(baseColor.z * 255.0f),
-                255
-            };
+                pixels[idx] = (Pixel){
+                    (uchar)(baseColor.x * 255.0f),
+                    (uchar)(baseColor.y * 255.0f),
+                    (uchar)(baseColor.z * 255.0f),
+                    255
+                };
+                depthBuffer[idx] = depth;
+            }
         }
     }
 }
