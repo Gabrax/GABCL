@@ -20,15 +20,14 @@ __kernel void clear_buffers(
     __global Pixel* pixels,
     __global float* depth,
     int width, int height,
-    Pixel color,
-    float depthClear
-) {
+    Pixel color)
+{
     int x = get_global_id(0);
     int y = get_global_id(1);
     if (x >= width || y >= height) return;
     int idx = y * width + x;
     pixels[idx] = color;
-    depth[idx] = depthClear;
+    depth[idx] = FLT_MAX;
 }
 
 __kernel void vertex_kernel(
@@ -66,7 +65,7 @@ __kernel void vertex_kernel(
 
   float3 viewDir = normalize(*cameraPos - (float3)(v_model.x, v_model.y, v_model.z));
   if (dot(normal_world, viewDir) < 0.0f) {
-      projVerts[i] = (float4)(-9999.0f, -9999.0f, -9999.0f, -9999.0f);
+      projVerts[i] = (float4)(-FLT_MAX);
       return;
   }
 
@@ -81,6 +80,12 @@ __kernel void vertex_kernel(
   v_clip.y = v_view.x * projection->y0 + v_view.y * projection->y1 + v_view.z * projection->y2 + v_view.w * projection->y3;
   v_clip.z = v_view.x * projection->z0 + v_view.y * projection->z1 + v_view.z * projection->z2 + v_view.w * projection->z3;
   v_clip.w = v_view.x * projection->w0 + v_view.y * projection->w1 + v_view.z * projection->w2 + v_view.w * projection->w3;
+
+
+  if (v_clip.w >= 0.0f) {
+      projVerts[i] = (float4)(-FLT_MAX);
+      return;
+  }
 
   // --- Perspective divide ---
   float ndc_x = v_clip.x / v_clip.w;
@@ -106,6 +111,45 @@ inline float SignedTriangleArea(float2 a, float2 b, float2 c)
     return 0.5f * ((b.x - a.x)*(c.y - a.y) - (b.y - a.y)*(c.x - a.x));
 }
 
+inline Pixel sample_texture(__global Pixel* texture, int texWidth, int texHeight, float2 uv)
+{
+    uv.x = clamp(uv.x, 0.0f, 1.0f);
+    uv.y = clamp(uv.y, 0.0f, 1.0f);
+
+    int u = (int)(uv.x * (texWidth - 1));
+    int v = (int)((1.0f - uv.y) * (texHeight - 1)); // flip Y if needed
+
+    return texture[v * texWidth + u];
+}
+
+inline Pixel sample_texture_bilinear(__global Pixel* texture, int texWidth, int texHeight, float2 uv)
+{
+    uv.x = clamp(uv.x, 0.0f, 1.0f);
+    uv.y = clamp(uv.y, 0.0f, 1.0f);
+
+    float fx = uv.x * (texWidth - 1);
+    float fy = (1.0f - uv.y) * (texHeight - 1);
+
+    int x0 = (int)floor(fx);
+    int y0 = (int)floor(fy);
+    int x1 = min(x0 + 1, texWidth - 1);
+    int y1 = min(y0 + 1, texHeight - 1);
+
+    float tx = fx - x0;
+    float ty = fy - y0;
+
+    Pixel c00 = texture[y0 * texWidth + x0];
+    Pixel c10 = texture[y0 * texWidth + x1];
+    Pixel c01 = texture[y1 * texWidth + x0];
+    Pixel c11 = texture[y1 * texWidth + x1];
+
+    float3 c0 = (float3)(c00.r, c00.g, c00.b) * (1 - tx) + (float3)(c10.r, c10.g, c10.b) * tx;
+    float3 c1 = (float3)(c01.r, c01.g, c01.b) * (1 - tx) + (float3)(c11.r, c11.g, c11.b) * tx;
+    float3 color = c0 * (1 - ty) + c1 * ty;
+
+    return (Pixel){(uchar)color.x, (uchar)color.y, (uchar)color.z, 255};
+}
+
 __kernel void fragment_kernel(
     __global Pixel* pixels,
     __global Triangle* tris,
@@ -115,7 +159,7 @@ __kernel void fragment_kernel(
     int height,
     __global float* depthBuffer,
     __global float3* cameraPos,
-    __global float3* fragPos)
+    __global float3* fragPos,__global Pixel* texture, int texWidth,int texHeight)
 {
     int x = get_global_id(0);
     int y = get_global_id(1);
@@ -131,7 +175,7 @@ __kernel void fragment_kernel(
         float4 pv2 = projVerts[tri*3 + 2];
 
         // Skip culled
-        if (pv0.w == -9999.0f || pv1.w == -9999.0f || pv2.w == -9999.0f)
+        if (pv0.w == -FLT_MAX || pv1.w == -FLT_MAX || pv2.w == -FLT_MAX)
             continue;
 
         float2 v0 = (float2)(pv0.x, pv0.y);
@@ -155,14 +199,23 @@ __kernel void fragment_kernel(
             if (depth < depthBuffer[idx])
             {
                 __global Triangle* t = &tris[tri];
-                float3 baseColor = (float3)(t->color.r / 255.0f, t->color.g / 255.0f, t->color.b / 255.0f);
+                float3 baseColor = (float3)(
+                    t->color.r / 255.0f,
+                    t->color.g / 255.0f,
+                    t->color.b / 255.0f
+                );
 
-                pixels[idx] = (Pixel){
-                    (uchar)(baseColor.x * 255.0f),
-                    (uchar)(baseColor.y * 255.0f),
-                    (uchar)(baseColor.z * 255.0f),
-                    255
-                };
+                float2 uv0 = (float2){t->uv[0].x,t->uv[0].y};
+                float2 uv1 = (float2){t->uv[1].x,t->uv[1].y};
+                float2 uv2 = (float2){t->uv[2].x,t->uv[2].y};
+
+                float2 uv = (uv0 * (a * z0) +
+                             uv1 * (b * z1) +
+                             uv2 * (g * z2)) / depth;
+
+                Pixel texel = sample_texture_bilinear(texture, texWidth, texHeight, uv);
+                pixels[idx] = texel;
+
                 depthBuffer[idx] = depth;
             }
         }

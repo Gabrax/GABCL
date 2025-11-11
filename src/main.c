@@ -19,8 +19,14 @@ int main()
   camera_init(&camera,screen_resolution[0],screen_resolution[1],90.0f,0.01f,1000.0f);
 
   CustomModel mesh = {0};
-  custom_model_load(&mesh, "res/dragon.obj", (Color){0,255,0,255});
-  /*model_print_data(&mesh);*/
+  custom_model_load(&mesh, "res/slime.obj", (Color){0,255,0,255});
+  /*custom_model_print_data(&mesh);*/
+
+  Image img2 = LoadImage("res/Texture.png"); // or any file
+  int texWidth = img2.width;
+  int texHeight = img2.height;
+  unsigned char* pixels = (unsigned char*)img2.data;
+  ImageFormat(&img2, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
 
   CL cl = {0};
   cl_init(&cl, "src/shapes.cl");
@@ -39,14 +45,20 @@ int main()
   cl_mem transformBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(f4x4), NULL, &cl.err);
   cl_mem cameraPosBuffer  = clCreateBuffer(cl.context, CL_MEM_READ_ONLY, sizeof(f3), NULL, &cl.err);
 
+  cl_mem textureBuffer = clCreateBuffer(
+      cl.context,
+      CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+      texWidth * texHeight * sizeof(Color),
+      img2.data,
+      &cl.err
+  );
+
   Color clearColor = {0, 0, 0, 255};
-  float clearDepth = FLT_MAX;
   clSetKernelArg(clearKernel, 0, sizeof(cl_mem), &frameBuffer);
   clSetKernelArg(clearKernel, 1, sizeof(cl_mem), &depthBuffer);
   clSetKernelArg(clearKernel, 2, sizeof(int), &screen_resolution[0]);
   clSetKernelArg(clearKernel, 3, sizeof(int), &screen_resolution[1]);
   clSetKernelArg(clearKernel, 4, sizeof(Color), &clearColor);
-  clSetKernelArg(clearKernel, 5, sizeof(float), &clearDepth);
   clEnqueueNDRangeKernel(cl.queue, clearKernel, 2, NULL, screen_resolution, NULL, 0, NULL, NULL);
 
   clSetKernelArg(vertexKernel, 0, sizeof(cl_mem), &trisBuffer);
@@ -69,6 +81,9 @@ int main()
   clSetKernelArg(fragmentKernel, 6, sizeof(cl_mem), &depthBuffer);
   clSetKernelArg(fragmentKernel, 7, sizeof(cl_mem), &cameraPosBuffer);
   clSetKernelArg(fragmentKernel, 8, sizeof(cl_mem), &fragPosBuffer);
+  clSetKernelArg(fragmentKernel, 9, sizeof(cl_mem), &textureBuffer);
+  clSetKernelArg(fragmentKernel, 10, sizeof(int), &texWidth);
+  clSetKernelArg(fragmentKernel, 11, sizeof(int), &texHeight);
 
   Image img = GenImageColor(screen_resolution[0], screen_resolution[1], BLACK);
   Texture2D texture = LoadTextureFromImage(img);
