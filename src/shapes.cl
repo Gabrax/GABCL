@@ -113,41 +113,41 @@ inline float SignedTriangleArea(float2 a, float2 b, float2 c)
 
 inline Pixel sample_texture(__global Pixel* texture, int texWidth, int texHeight, float2 uv)
 {
-    uv.x = clamp(uv.x, 0.0f, 1.0f);
-    uv.y = clamp(uv.y, 0.0f, 1.0f);
+  uv.x = clamp(uv.x, 0.001f, 0.999f);
+  uv.y = clamp(uv.y, 0.001f, 0.999f);
 
-    int u = (int)(uv.x * (texWidth - 1));
-    int v = (int)((1.0f - uv.y) * (texHeight - 1)); // flip Y if needed
+  int u = (int)floor(uv.x * (texWidth - 1) + 0.5f);
+  int v = (int)floor((1.0f - uv.y) * (texHeight - 1) + 0.5f);
 
-    return texture[v * texWidth + u];
+  return texture[v * texWidth + u];
 }
 
 inline Pixel sample_texture_bilinear(__global Pixel* texture, int texWidth, int texHeight, float2 uv)
 {
-    uv.x = clamp(uv.x, 0.0f, 1.0f);
-    uv.y = clamp(uv.y, 0.0f, 1.0f);
+  uv.x = clamp(uv.x, 0.0f, 1.0f);
+  uv.y = clamp(uv.y, 0.0f, 1.0f);
 
-    float fx = uv.x * (texWidth - 1);
-    float fy = (1.0f - uv.y) * (texHeight - 1);
+  float fx = uv.x * (texWidth - 1);
+  float fy = (1.0f - uv.y) * (texHeight - 1);
 
-    int x0 = (int)floor(fx);
-    int y0 = (int)floor(fy);
-    int x1 = min(x0 + 1, texWidth - 1);
-    int y1 = min(y0 + 1, texHeight - 1);
+  int x0 = (int)floor(fx);
+  int y0 = (int)floor(fy);
+  int x1 = min(x0 + 1, texWidth - 1);
+  int y1 = min(y0 + 1, texHeight - 1);
 
-    float tx = fx - x0;
-    float ty = fy - y0;
+  float tx = fx - x0;
+  float ty = fy - y0;
 
-    Pixel c00 = texture[y0 * texWidth + x0];
-    Pixel c10 = texture[y0 * texWidth + x1];
-    Pixel c01 = texture[y1 * texWidth + x0];
-    Pixel c11 = texture[y1 * texWidth + x1];
+  Pixel c00 = texture[y0 * texWidth + x0];
+  Pixel c10 = texture[y0 * texWidth + x1];
+  Pixel c01 = texture[y1 * texWidth + x0];
+  Pixel c11 = texture[y1 * texWidth + x1];
 
-    float3 c0 = (float3)(c00.r, c00.g, c00.b) * (1 - tx) + (float3)(c10.r, c10.g, c10.b) * tx;
-    float3 c1 = (float3)(c01.r, c01.g, c01.b) * (1 - tx) + (float3)(c11.r, c11.g, c11.b) * tx;
-    float3 color = c0 * (1 - ty) + c1 * ty;
+  float3 c0 = (float3)(c00.r, c00.g, c00.b) * (1 - tx) + (float3)(c10.r, c10.g, c10.b) * tx;
+  float3 c1 = (float3)(c01.r, c01.g, c01.b) * (1 - tx) + (float3)(c11.r, c11.g, c11.b) * tx;
+  float3 color = c0 * (1 - ty) + c1 * ty;
 
-    return (Pixel){(uchar)color.x, (uchar)color.y, (uchar)color.z, 255};
+  return (Pixel){(uchar)color.x, (uchar)color.y, (uchar)color.z, 255};
 }
 
 __kernel void fragment_kernel(
@@ -167,6 +167,8 @@ __kernel void fragment_kernel(
 
     int idx = y * width + x;
     float2 P = (float2)(x + 0.5f, y + 0.5f); // pixel center
+
+    float3 dirToLight = normalize((float3){0.0f, 5.0f, 2.0f});
 
     for (int tri = 0; tri < numTriangles; tri++)
     {
@@ -213,8 +215,27 @@ __kernel void fragment_kernel(
                              uv1 * (b * z1) +
                              uv2 * (g * z2)) / depth;
 
-                Pixel texel = sample_texture_bilinear(texture, texWidth, texHeight, uv);
-                pixels[idx] = texel;
+                float3 normal0 = (float3){t->normal[0].x,t->normal[0].y,t->normal[0].z};
+                float3 normal1 = (float3){t->normal[1].x,t->normal[1].y,t->normal[1].z};
+                float3 normal2 = (float3){t->normal[2].x,t->normal[2].y,t->normal[2].z};
+
+                float3 normal = (normal0 * (a * z0) +
+                                 normal1 * (b * z1) +
+                                 normal2 * (g * z2)) / depth;
+                float3 norm = normalize(normal);
+
+                float light_intensity = fmax(0.1f,dot(norm,dirToLight));
+
+                Pixel texel = sample_texture(texture, texWidth, texHeight, uv);
+                float3 texColor = (float3){texel.r, texel.g, texel.b} / 255.0f;
+                float3 finalColor = (float3){1.0,1.0,1.0} * light_intensity;
+
+                pixels[idx] = (Pixel){
+                    (uchar)(finalColor.x * 255),
+                    (uchar)(finalColor.y * 255),
+                    (uchar)(finalColor.z * 255),
+                    255
+                };
 
                 depthBuffer[idx] = depth;
             }

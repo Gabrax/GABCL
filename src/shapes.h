@@ -23,9 +23,13 @@ typedef struct {
     Triangle* triangles;   
     size_t numTriangles;
     size_t numVertices;
+    int texWidth;
+    int texHeight;
+    Color* pixels;
+    f4x4 transform;
 } CustomModel;
 
-inline void custom_model_load(CustomModel* model, const char* filename, Color color)
+inline void custom_model_load(CustomModel* model, const char* filePath,const char* texturePath, Color color)
 {
     static int seeded = 0;
     if (!seeded) {
@@ -34,7 +38,7 @@ inline void custom_model_load(CustomModel* model, const char* filename, Color co
     }
 
     const struct aiScene* scene = aiImportFile(
-        filename,
+        filePath,
         aiProcess_Triangulate |          // convert all faces to triangles
         aiProcess_JoinIdenticalVertices |// merge shared vertices
         aiProcess_GenSmoothNormals |     // generate smooth vertex normals
@@ -43,7 +47,7 @@ inline void custom_model_load(CustomModel* model, const char* filename, Color co
     );
 
     if (!scene || scene->mNumMeshes == 0) {
-        fprintf(stderr, "Failed to load model: %s\n", filename);
+        fprintf(stderr, "Failed to load model: %s\n", filePath);
         aiReleaseImport(scene);
         return;
     }
@@ -86,6 +90,21 @@ inline void custom_model_load(CustomModel* model, const char* filename, Color co
     model->numTriangles = arrlen(model->triangles);
     model->numVertices = model->numTriangles * 3;
     aiReleaseImport(scene);
+
+  if(texturePath)
+  {
+    Image img = LoadImage(texturePath);
+    model->texWidth = img.width;
+    model->texHeight = img.height;
+    model->pixels = (Color*)img.data;
+    ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    UnloadImage(img);
+  }
+}
+
+inline void custom_model_set_transform(CustomModel* model,f4x4 transform)
+{
+  model->transform = transform;
 }
 
 inline void custom_model_print_data(const CustomModel* model)

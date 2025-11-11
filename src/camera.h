@@ -34,9 +34,9 @@ typedef struct
   bool firstMouse;
   float deltaTime;
 
-} GAB_Camera;
+} CustomCamera;
 
-inline void camera_init(GAB_Camera* camera, int width, int height, float fov, float near_plane, float far_plane)
+inline void camera_init(CustomCamera* camera, int width, int height, float fov, float near_plane, float far_plane)
 {
   camera->Position = (f3){0.0f, 0.0f, 0.0f};
   camera->WorldUp = (f3){0.0f, 1.0f, 0.0f};
@@ -58,7 +58,7 @@ inline void camera_init(GAB_Camera* camera, int width, int height, float fov, fl
   camera->deltaTime = 1.0/60.0f;
 }
 
-inline void camera_process_keys(GAB_Camera* camera, Camera_Movement direction)
+inline void camera_process_keys(CustomCamera* camera, Camera_Movement direction)
 {
   float velocity = camera->speed * camera->deltaTime;
 
@@ -67,7 +67,7 @@ inline void camera_process_keys(GAB_Camera* camera, Camera_Movement direction)
   if (direction == LEFT) camera->Position = f3Add(camera->Position, f3MulS(camera->Right, velocity));
   if (direction == RIGHT) camera->Position = f3Add(camera->Position, f3MulS(camera->Right, -velocity));
 }
-inline void camera_update(GAB_Camera* camera, float mouseX, float mouseY, bool constrainPitch)
+inline void camera_update(CustomCamera* camera, float mouseX, float mouseY, bool constrainPitch)
 {
   float xoffset, yoffset;
   if (camera->firstMouse)
