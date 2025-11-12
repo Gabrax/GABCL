@@ -1,7 +1,6 @@
 #pragma once
 
-#include "shapes.h"
-#include "camera.h"
+#include "gab_math.h"
 #include <CL/cl.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -36,173 +35,107 @@ typedef struct {
   Texture2D texture;
 } Engine;
 
-inline const char* loadKernel(const char* filename) {
-    FILE* f = fopen(filename, "rb");
-    if(!f) { printf("Cannot open kernel file.\n"); return NULL; }
-    fseek(f,0,SEEK_END);
-    size_t size = ftell(f);
-    fseek(f,0,SEEK_SET);
-    char* src = (char*)malloc(size+1);
-    fread(src,1,size,f);
-    src[size] = '\0';
-    fclose(f);
-    return src;
-}
+typedef struct {
+    f3 vertex[3]; 
+    f2 uv[3];
+    f3 normal[3];
+    Color color;
+} Triangle;
 
-inline void engine_init(Engine* engine,CustomCamera* camera,CustomModel* model,const char* kernel,int width, int height)
+typedef struct {
+    Triangle* triangles;   
+    size_t numTriangles;
+    size_t numVertices;
+    int texWidth;
+    int texHeight;
+    Color* pixels;
+    f4x4 transform;
+} CustomModel;
+
+typedef struct {
+    int triangleOffset;
+    int triangleCount;
+    int vertexOffset;
+    int vertexCount;
+    int pixelOffset;
+    int texWidth;
+    int texHeight;
+    f4x4 transform;
+} CustomModelGPU;
+
+typedef enum Camera_Movement {
+    FORWARD,
+    BACKWARD,
+    LEFT,
+    RIGHT
+} Camera_Movement;
+
+typedef struct 
 {
-  clGetPlatformIDs(1, &engine->platform, NULL);
-  clGetDeviceIDs(engine->platform, CL_DEVICE_TYPE_GPU, 1, &engine->device, NULL);
+  f3 Position;
+  f3 Front;
+  f3 Up;
+  f3 Right;
+  f3 WorldUp;
+  f4x4 proj;
+  f4x4 look_at;
+  float near_plane;
+  float far_plane;
+  float fov;
+  float fov_rad;
+  float aspect_ratio;
+  float yaw;
+  float pitch;
+  float speed;
+  float sens;
+  float lastX;
+  float lastY;
+  bool firstMouse;
+  float deltaTime;
 
-  engine->context = clCreateContext(NULL, 1, &engine->device, NULL, NULL, NULL);
-  engine->queue = clCreateCommandQueue(engine->context, engine->device, 0, NULL);
-  
-  const char* kernelSource = loadKernel(kernel); 
-  engine->program = clCreateProgramWithSource(engine->context, 1, &kernelSource, NULL, &engine->err);
-  if (engine->err != CL_SUCCESS) { printf("Error creating program: %d\n", engine->err); }
+} CustomCamera;
 
-  engine->err = clBuildProgram(engine->program, 1, &engine->device, NULL, NULL, NULL);
-  if (engine->err != CL_SUCCESS) {
-      size_t log_size;
-      clGetProgramBuildInfo(engine->program, engine->device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
-      char* log = (char*)malloc(log_size);
-      clGetProgramBuildInfo(engine->program, engine->device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
-      printf("OpenCL build error:\n%s\n", log);
-      free(log);
-  }
+void engine_init(Engine* engine,CustomCamera* camera,
+                 CustomModel* model,const char* kernel,
+                 int width, int height);
 
-  engine->screen_resolution[0] = width;
-  engine->screen_resolution[1] = height;
+void engine_background_color(Engine* engine, Color color);
 
-  engine->clearKernel    = clCreateKernel(engine->program, "clear_buffers", NULL);
-  engine->vertexKernel   = clCreateKernel(engine->program, "vertex_kernel", NULL);
-  engine->fragmentKernel = clCreateKernel(engine->program, "fragment_kernel", NULL);
 
-  engine->frameBuffer = clCreateBuffer(engine->context, CL_MEM_WRITE_ONLY, 
-                                      engine->screen_resolution[0] * engine->screen_resolution[1]
-                                              * sizeof(Color), NULL, NULL);
-  engine->depthBuffer = clCreateBuffer(engine->context, CL_MEM_READ_WRITE,
-                                      sizeof(float) * engine->screen_resolution[0]
-                                                    * engine->screen_resolution[1],
-                                                    NULL, &engine->err);
-  engine->trisBuffer = clCreateBuffer(engine->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                     sizeof(Triangle) * model->numTriangles, model->triangles, &engine->err);
-  engine->mvpVertsBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_WRITE,
-                                          sizeof(f4) * model->numVertices, NULL, NULL);
-  engine->fragPosBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_WRITE, sizeof(f3), NULL, NULL);
-  engine->projectionBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
-                                            sizeof(f4x4), NULL, &engine->err);
-  engine->viewBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
-                                      sizeof(f4x4), NULL, &engine->err);
-  engine->transformBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
-                                           sizeof(f4x4), NULL, &engine->err);
-  engine->cameraPosBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
-                                           sizeof(f3), NULL, &engine->err);
-  engine->textureBuffer = clCreateBuffer(engine->context,CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                        model->texWidth * model->texHeight * sizeof(Color), model->pixels,
-                                        &engine->err);
+void engine_clear_background(Engine* engine);
 
-  clSetKernelArg(engine->clearKernel, 0, sizeof(cl_mem), &engine->frameBuffer);
-  clSetKernelArg(engine->clearKernel, 1, sizeof(cl_mem), &engine->depthBuffer);
-  clSetKernelArg(engine->clearKernel, 2, sizeof(int), &engine->screen_resolution[0]);
-  clSetKernelArg(engine->clearKernel, 3, sizeof(int), &engine->screen_resolution[1]);
-  clEnqueueNDRangeKernel(engine->queue, engine->clearKernel, 2, NULL, engine->screen_resolution, NULL, 0, NULL, NULL);
 
-  clSetKernelArg(engine->vertexKernel, 0, sizeof(cl_mem), &engine->trisBuffer);
-  clSetKernelArg(engine->vertexKernel, 1, sizeof(cl_mem), &engine->mvpVertsBuffer);
-  clSetKernelArg(engine->vertexKernel, 2, sizeof(cl_mem), &engine->projectionBuffer); 
-  clSetKernelArg(engine->vertexKernel, 3, sizeof(cl_mem), &engine->viewBuffer); 
-  clSetKernelArg(engine->vertexKernel, 4, sizeof(cl_mem), &engine->transformBuffer); 
-  clSetKernelArg(engine->vertexKernel, 5, sizeof(int), &model->numTriangles);
-  clSetKernelArg(engine->vertexKernel, 6, sizeof(int), &engine->screen_resolution[0]);
-  clSetKernelArg(engine->vertexKernel, 7, sizeof(int), &engine->screen_resolution[1]);
-  clSetKernelArg(engine->vertexKernel, 8, sizeof(cl_mem), &engine->cameraPosBuffer);
-  clSetKernelArg(engine->vertexKernel, 9, sizeof(cl_mem), &engine->fragPosBuffer);
+void engine_send_camera_matrix(Engine* engine, CustomCamera* camera);
 
-  clSetKernelArg(engine->fragmentKernel, 0, sizeof(cl_mem), &engine->frameBuffer);
-  clSetKernelArg(engine->fragmentKernel, 1, sizeof(cl_mem), &engine->trisBuffer);
-  clSetKernelArg(engine->fragmentKernel, 2, sizeof(cl_mem), &engine->mvpVertsBuffer);
-  clSetKernelArg(engine->fragmentKernel, 3, sizeof(int), &model->numTriangles);
-  clSetKernelArg(engine->fragmentKernel, 4, sizeof(int), &engine->screen_resolution[0]);
-  clSetKernelArg(engine->fragmentKernel, 5, sizeof(int), &engine->screen_resolution[1]);
-  clSetKernelArg(engine->fragmentKernel, 6, sizeof(cl_mem), &engine->depthBuffer);
-  clSetKernelArg(engine->fragmentKernel, 7, sizeof(cl_mem), &engine->cameraPosBuffer);
-  clSetKernelArg(engine->fragmentKernel, 8, sizeof(cl_mem), &engine->fragPosBuffer);
-  clSetKernelArg(engine->fragmentKernel, 9, sizeof(cl_mem), &engine->textureBuffer);
-  clSetKernelArg(engine->fragmentKernel, 10, sizeof(int), &model->texWidth);
-  clSetKernelArg(engine->fragmentKernel, 11, sizeof(int), &model->texHeight);
 
-  Image img = GenImageColor(engine->screen_resolution[0], engine->screen_resolution[1], engine->clearColor);
-  engine->texture = LoadTextureFromImage(img);
-  free(img.data); // pixel buffer is managed by OpenCL
+void engine_run_rasterizer(Engine* engine, CustomModel* model);
 
-  engine->pixelBuffer = (Color*)malloc(engine->screen_resolution[0]
-                                       * engine->screen_resolution[1] 
-                                       * sizeof(Color));
-  
-  clEnqueueWriteBuffer(engine->queue, engine->transformBuffer, CL_TRUE, 0,
-                      sizeof(f4x4), &model->transform, 0, NULL, NULL);
-  clEnqueueWriteBuffer(engine->queue, engine->projectionBuffer, CL_TRUE, 0,
-                       sizeof(f4x4), &camera->proj, 0, NULL, NULL);
-}
 
-inline void engine_background_color(Engine* engine, Color color)
-{
-  clSetKernelArg(engine->clearKernel, 4, sizeof(Color), &color);
-}
+void engine_read_and_display(Engine* engine);
 
-inline void engine_clear_background(Engine* engine)
-{
-  clEnqueueNDRangeKernel(engine->queue, engine->clearKernel, 2, NULL, engine->screen_resolution, NULL, 0, NULL, NULL);
-}
 
-inline void engine_send_camera_matrix(Engine* engine, CustomCamera* camera)
-{
-  clEnqueueWriteBuffer(engine->queue, engine->cameraPosBuffer, CL_TRUE, 0,
-                       sizeof(f3), &camera->Position, 0, NULL, NULL);
-  clEnqueueWriteBuffer(engine->queue, engine->viewBuffer, CL_TRUE, 0,
-                       sizeof(f4x4), &camera->look_at, 0, NULL, NULL);
-}
+void engine_close(Engine* engine);
 
-inline void engine_run_rasterizer(Engine* engine, CustomModel* model)
-{
-  clEnqueueNDRangeKernel(engine->queue, engine->vertexKernel, 1, NULL,
-                         &model->numVertices, NULL, 0, NULL, NULL);
-  clEnqueueNDRangeKernel(engine->queue, engine->fragmentKernel, 2, NULL,
-                         engine->screen_resolution, NULL, 0, NULL, NULL);
-}
 
-inline void engine_read_and_display(Engine* engine)
-{
-  clEnqueueReadBuffer(engine->queue, engine->frameBuffer, CL_TRUE, 0,
-                      engine->screen_resolution[0] * engine->screen_resolution[1] * sizeof(Color),
-                      engine->pixelBuffer, 0, NULL, NULL);
-  
-  clFinish(engine->queue);
-  clEnqueueReadBuffer(engine->queue, engine->frameBuffer, CL_TRUE, 0,
-                      engine->screen_resolution[0] * engine->screen_resolution[1] * sizeof(Color),
-                      engine->pixelBuffer, 0, NULL, NULL);
+void engine_load_model(CustomModel* model, const char* filePath,const char* texturePath, Color color);
 
-  UpdateTexture(engine->texture, engine->pixelBuffer);
-  BeginDrawing();
-  DrawTexture(engine->texture, 0, 0, WHITE);
-  EndDrawing();
-}
 
-inline void engine_close(Engine* engine)
-{
-  free(engine->pixelBuffer);
+void engine_set_model_transform(CustomModel* model,f4x4 transform);
 
-  UnloadTexture(engine->texture);
-  CloseWindow();
 
-  clReleaseMemObject(engine->frameBuffer);
-  clReleaseMemObject(engine->trisBuffer);
-  clReleaseMemObject(engine->mvpVertsBuffer);
-  clReleaseKernel(engine->vertexKernel);
-  clReleaseKernel(engine->fragmentKernel);
-  clReleaseProgram(engine->program);
-  clReleaseCommandQueue(engine->queue);
-  clReleaseContext(engine->context);
+void engine_print_model_data(const CustomModel* model);
 
-}
+
+void engine_free_model(CustomModel* model);
+
+
+void engine_init_camera(CustomCamera* camera, int width, int height, float fov,
+                        float near_plane, float far_plane);
+
+void engine_process_camera_keys(CustomCamera* camera, Camera_Movement direction);
+
+
+void engine_update_camera(CustomCamera* camera, float mouseX, float mouseY, bool constrainPitch);
+
+
+

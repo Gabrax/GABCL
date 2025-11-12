@@ -39,7 +39,7 @@ __kernel void vertex_kernel(
     int numTriangles,
     int width,
     int height,
-    __global float3* cameraPos,__global float3* fragPos)
+    __global float3* cameraPos)
 {
   int i = get_global_id(0);
   if (i >= numTriangles * 3) return;
@@ -97,7 +97,6 @@ __kernel void vertex_kernel(
   float sy = (ndc_y * 0.5f + 0.5f) * (float)height;
   float sz = ndc_z * 0.5f + 0.5f;
 
-  fragPos[i] = (float3)(v_view.x, v_view.y, v_view.z);
   projVerts[i] = (float4)(sx, sy, sz, v_clip.w);
 }
 
@@ -159,7 +158,7 @@ __kernel void fragment_kernel(
     int height,
     __global float* depthBuffer,
     __global float3* cameraPos,
-    __global float3* fragPos,__global Pixel* texture, int texWidth,int texHeight)
+    __global Pixel* texture, int texWidth,int texHeight)
 {
     int x = get_global_id(0);
     int y = get_global_id(1);
@@ -226,9 +225,13 @@ __kernel void fragment_kernel(
 
                 float light_intensity = fmax(0.1f,dot(norm,dirToLight));
 
-                Pixel texel = sample_texture(texture, texWidth, texHeight, uv);
-                float3 texColor = (float3){texel.r, texel.g, texel.b} / 255.0f;
-                float3 finalColor = (float3){1.0,1.0,1.0} * light_intensity;
+                float3 finalColor;
+                if(texture != NULL)
+                {
+                  Pixel texel = sample_texture(texture, texWidth, texHeight, uv);
+                  float3 texColor = (float3){texel.r, texel.g, texel.b} / 255.0f;
+                  finalColor = texColor * light_intensity;
+                } else finalColor = (float3){1.0,1.0,1.0} * light_intensity;
 
                 pixels[idx] = (Pixel){
                     (uchar)(finalColor.x * 255),
