@@ -12,6 +12,27 @@
 #include <time.h>
 #include <stdbool.h>
 
+typedef struct {
+    int triangleOffset;
+    int triangleCount;
+    int vertexOffset;
+    int vertexCount;
+    int pixelOffset;
+    int texWidth;
+    int texHeight;
+    f4x4 transform;
+} CustomModelGPU;
+
+static CustomModel* models = NULL;
+static Triangle* allTriangles = NULL;
+static Color* allTexturePixels = NULL;
+static CustomModelGPU* gpuModels = NULL;
+
+static size_t totalTriangles = 0;
+static size_t totalTexturePixels = 0;
+
+static size_t triOffset = 0;
+static size_t pixOffset = 0;
 
 inline const char* loadKernel(const char* filename) {
     FILE* f = fopen(filename, "rb");
@@ -26,7 +47,7 @@ inline const char* loadKernel(const char* filename) {
     return src;
 }
 
-void engine_init(Engine* engine,CustomCamera* camera,CustomModel* model,const char* kernel,int width, int height)
+void engine_init(Engine* engine,CustomCamera* camera,const char* kernel,int width, int height)
 {
   clGetPlatformIDs(1, &engine->platform, NULL);
   clGetDeviceIDs(engine->platform, CL_DEVICE_TYPE_GPU, 1, &engine->device, NULL);
@@ -62,49 +83,31 @@ void engine_init(Engine* engine,CustomCamera* camera,CustomModel* model,const ch
                                       sizeof(float) * engine->screen_resolution[0]
                                                     * engine->screen_resolution[1],
                                                     NULL, &engine->err);
-  engine->trisBuffer = clCreateBuffer(engine->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                     sizeof(Triangle) * model->numTriangles, model->triangles, &engine->err);
-  engine->mvpVertsBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_WRITE,
-                                          sizeof(f4) * model->numVertices, NULL, NULL);
   engine->projectionBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
                                             sizeof(f4x4), NULL, &engine->err);
   engine->viewBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
                                       sizeof(f4x4), NULL, &engine->err);
   engine->cameraPosBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
                                            sizeof(f3), NULL, &engine->err);
-  engine->transformBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
-                                           sizeof(f4x4), NULL, &engine->err);
-  engine->textureBuffer = clCreateBuffer(engine->context,CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                        model->texWidth * model->texHeight * sizeof(Color), model->pixels,
-                                        &engine->err);
 
   clSetKernelArg(engine->clearKernel, 0, sizeof(cl_mem), &engine->frameBuffer);
   clSetKernelArg(engine->clearKernel, 1, sizeof(cl_mem), &engine->depthBuffer);
   clSetKernelArg(engine->clearKernel, 2, sizeof(int), &engine->screen_resolution[0]);
   clSetKernelArg(engine->clearKernel, 3, sizeof(int), &engine->screen_resolution[1]);
-  clEnqueueNDRangeKernel(engine->queue, engine->clearKernel, 2, NULL, engine->screen_resolution, NULL, 0, NULL, NULL);
+  clEnqueueNDRangeKernel(engine->queue, engine->clearKernel, 2, NULL,
+                         engine->screen_resolution, NULL, 0, NULL, NULL);
 
-  clSetKernelArg(engine->vertexKernel, 0, sizeof(cl_mem), &engine->trisBuffer);
-  clSetKernelArg(engine->vertexKernel, 1, sizeof(cl_mem), &engine->mvpVertsBuffer);
-  clSetKernelArg(engine->vertexKernel, 2, sizeof(cl_mem), &engine->projectionBuffer); 
-  clSetKernelArg(engine->vertexKernel, 3, sizeof(cl_mem), &engine->viewBuffer); 
-  clSetKernelArg(engine->vertexKernel, 4, sizeof(cl_mem), &engine->transformBuffer); 
-  clSetKernelArg(engine->vertexKernel, 5, sizeof(int), &model->numTriangles);
-  clSetKernelArg(engine->vertexKernel, 6, sizeof(int), &engine->screen_resolution[0]);
-  clSetKernelArg(engine->vertexKernel, 7, sizeof(int), &engine->screen_resolution[1]);
-  clSetKernelArg(engine->vertexKernel, 8, sizeof(cl_mem), &engine->cameraPosBuffer);
+  clSetKernelArg(engine->vertexKernel, 5, sizeof(cl_mem), &engine->projectionBuffer); 
+  clSetKernelArg(engine->vertexKernel, 6, sizeof(cl_mem), &engine->viewBuffer); 
+  clSetKernelArg(engine->vertexKernel, 7, sizeof(cl_mem), &engine->cameraPosBuffer);
+  clSetKernelArg(engine->vertexKernel, 8, sizeof(int), &engine->screen_resolution[0]);
+  clSetKernelArg(engine->vertexKernel, 9, sizeof(int), &engine->screen_resolution[1]);
 
   clSetKernelArg(engine->fragmentKernel, 0, sizeof(cl_mem), &engine->frameBuffer);
-  clSetKernelArg(engine->fragmentKernel, 1, sizeof(cl_mem), &engine->trisBuffer);
-  clSetKernelArg(engine->fragmentKernel, 2, sizeof(cl_mem), &engine->mvpVertsBuffer);
-  clSetKernelArg(engine->fragmentKernel, 3, sizeof(int), &model->numTriangles);
-  clSetKernelArg(engine->fragmentKernel, 4, sizeof(int), &engine->screen_resolution[0]);
-  clSetKernelArg(engine->fragmentKernel, 5, sizeof(int), &engine->screen_resolution[1]);
-  clSetKernelArg(engine->fragmentKernel, 6, sizeof(cl_mem), &engine->depthBuffer);
-  clSetKernelArg(engine->fragmentKernel, 7, sizeof(cl_mem), &engine->cameraPosBuffer);
-  clSetKernelArg(engine->fragmentKernel, 8, sizeof(cl_mem), &engine->textureBuffer);
-  clSetKernelArg(engine->fragmentKernel, 9, sizeof(int), &model->texWidth);
-  clSetKernelArg(engine->fragmentKernel, 10, sizeof(int), &model->texHeight);
+  clSetKernelArg(engine->fragmentKernel, 2, sizeof(int), &engine->screen_resolution[0]);
+  clSetKernelArg(engine->fragmentKernel, 3, sizeof(int), &engine->screen_resolution[1]);
+  clSetKernelArg(engine->fragmentKernel, 4, sizeof(cl_mem), &engine->depthBuffer);
+  clSetKernelArg(engine->fragmentKernel, 5, sizeof(cl_mem), &engine->cameraPosBuffer);
 
   Image img = GenImageColor(engine->screen_resolution[0], engine->screen_resolution[1], engine->clearColor);
   engine->texture = LoadTextureFromImage(img);
@@ -114,8 +117,6 @@ void engine_init(Engine* engine,CustomCamera* camera,CustomModel* model,const ch
                                        * engine->screen_resolution[1] 
                                        * sizeof(Color));
   
-  clEnqueueWriteBuffer(engine->queue, engine->transformBuffer, CL_TRUE, 0,
-                      sizeof(f4x4), &model->transform, 0, NULL, NULL);
   clEnqueueWriteBuffer(engine->queue, engine->projectionBuffer, CL_TRUE, 0,
                        sizeof(f4x4), &camera->proj, 0, NULL, NULL);
 }
@@ -138,10 +139,10 @@ void engine_send_camera_matrix(Engine* engine, CustomCamera* camera)
                        sizeof(f4x4), &camera->look_at, 0, NULL, NULL);
 }
 
-void engine_run_rasterizer(Engine* engine, CustomModel* model)
+void engine_run_rasterizer(Engine* engine)
 {
   clEnqueueNDRangeKernel(engine->queue, engine->vertexKernel, 1, NULL,
-                         &model->numVertices, NULL, 0, NULL, NULL);
+                         &totalTriangles, NULL, 0, NULL, NULL);
   clEnqueueNDRangeKernel(engine->queue, engine->fragmentKernel, 2, NULL,
                          engine->screen_resolution, NULL, 0, NULL, NULL);
 }
@@ -171,8 +172,7 @@ void engine_close(Engine* engine)
   CloseWindow();
 
   clReleaseMemObject(engine->frameBuffer);
-  clReleaseMemObject(engine->trisBuffer);
-  clReleaseMemObject(engine->mvpVertsBuffer);
+  clReleaseMemObject(engine->projectedVertsBuffer);
   clReleaseKernel(engine->vertexKernel);
   clReleaseKernel(engine->fragmentKernel);
   clReleaseProgram(engine->program);
@@ -180,20 +180,7 @@ void engine_close(Engine* engine)
   clReleaseContext(engine->context);
 }
 
-// global array of objects
-static CustomModel* models = NULL;
-static Triangle* allTriangles = NULL;
-static Color* allPixels = NULL;
-static CustomModelGPU* gpuModels = NULL;
-
-static size_t totalTriangles = 0;
-static size_t totalPixels = 0;
-
-static size_t triOffset = 0;
-static size_t pixOffset = 0;
-
-
-void engine_load_model(CustomModel* model, const char* filePath,const char* texturePath, Color color)
+void engine_load_model(CustomModel* model, const char* filePath,const char* texturePath, Color color,f4x4 transform)
 {
     static int seeded = 0;
     if (!seeded) {
@@ -262,62 +249,69 @@ void engine_load_model(CustomModel* model, const char* filePath,const char* text
     model->texWidth = img.width;
     model->texHeight = img.height;
     model->pixels = (Color*)img.data;
-    ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
     /*UnloadImage(img);*/
   }
 
-  int numModels = arrlen(models);
+  model->transform = transform;
 
-  size_t totalTriangles = 0;
-  size_t totalPixels = 0;
 
-  // First pass: count
-  for (int i = 0; i < numModels; i++) {
-      totalTriangles += models[i].numTriangles;
-      totalPixels += models[i].texWidth * models[i].texHeight;
+  for (size_t t = 0; t < model->numTriangles; t++) {
+      arrpush(allTriangles, model->triangles[t]);
   }
 
-  // Second pass: copy data and fill gpuModels
-  size_t triOffset = 0;
-  size_t pixOffset = 0;
-
-  for (int i = 0; i < numModels; i++) {
-      CustomModelGPU m;
-      m.triangleOffset = triOffset;
-      m.triangleCount = (int)models[i].numTriangles;
-      m.vertexOffset = 0;     // if you add vertex data later
-      m.vertexCount = 0;
-      m.pixelOffset = pixOffset;
-      m.texWidth = models[i].texWidth;
-      m.texHeight = models[i].texHeight;
-      m.transform = models[i].transform;
-      gpuModels[i] = m;
-
-      memcpy(&allTriangles[triOffset], models[i].triangles,
-             models[i].numTriangles * sizeof(Triangle));
-      memcpy(&allPixels[pixOffset], models[i].pixels,
-             models[i].texWidth * models[i].texHeight * sizeof(Color));
-
-      triOffset += models[i].numTriangles;
-      pixOffset += models[i].texWidth * models[i].texHeight;
+  size_t numPixels = model->texWidth * model->texHeight;
+  for (size_t p = 0; p < numPixels; p++) {
+      arrpush(allTexturePixels, model->pixels[p]);
   }
 
-  /*cl_mem trianglesBuf = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,*/
-  /*  totalTriangles * sizeof(Triangle), allTriangles, &err);*/
-  /**/
-  /*cl_mem pixelsBuf = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,*/
-  /*    totalPixels * sizeof(Color), allPixels, &err);*/
-  /**/
-  /*cl_mem modelsBuf = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,*/
-  /*    numModels * sizeof(CustomModelGPU), gpuModels, &err);*/
-  /**/
-  /*clSetKernelArg(kernel, 0, sizeof(cl_mem), &modelsBuf);*/
-  /*clSetKernelArg(kernel, 1, sizeof(cl_mem), &trianglesBuf);*/
-  /*clSetKernelArg(kernel, 2, sizeof(cl_mem), &pixelsBuf);*/
-  /**/
-  /*size_t globalWorkSize = numModels;*/
-  /*clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &globalWorkSize, NULL, 0, NULL, NULL);*/
+  CustomModelGPU m;
+  m.triangleOffset = triOffset;
+  m.triangleCount  = (int)model->numTriangles;
+  m.vertexOffset   = 0;
+  m.vertexCount    = 0;
+  m.pixelOffset    = pixOffset;
+  m.texWidth       = model->texWidth  > 0 ? model->texWidth  : 0;
+  m.texHeight      = model->texHeight > 0 ? model->texHeight : 0;
+  m.transform      = transform;
+  arrpush(gpuModels, m);
 
+  triOffset += model->numTriangles;
+  pixOffset += numPixels;
+
+  totalTriangles += model->numTriangles;
+  totalTexturePixels += model->texWidth * model->texHeight;
+}
+
+void engine_upload_models_data(Engine* engine)
+{  
+  int numModels = arrlen(gpuModels);
+  totalTriangles *= 3;
+
+  engine->trianglesBuf = clCreateBuffer(engine->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        arrlen(allTriangles) * sizeof(Triangle), allTriangles, &engine->err);
+
+  engine->pixelsBuf = clCreateBuffer(engine->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        arrlen(allTexturePixels) * sizeof(Color), allTexturePixels, &engine->err);
+
+  engine->modelsBuf = clCreateBuffer(engine->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        arrlen(gpuModels) * sizeof(CustomModelGPU), gpuModels, &engine->err);
+
+  engine->projectedVertsBuffer = clCreateBuffer(engine->context, CL_MEM_READ_WRITE,
+                                          sizeof(f4) * totalTriangles, NULL, NULL);
+
+  clSetKernelArg(engine->vertexKernel, 4, sizeof(cl_mem), &engine->projectedVertsBuffer);
+  clSetKernelArg(engine->fragmentKernel, 1, sizeof(cl_mem), &engine->projectedVertsBuffer);
+
+  clSetKernelArg(engine->vertexKernel, 0, sizeof(cl_mem), &engine->trianglesBuf);
+  clSetKernelArg(engine->vertexKernel, 1, sizeof(cl_mem), &engine->modelsBuf);
+  clSetKernelArg(engine->vertexKernel, 2, sizeof(int), &numModels);
+  clSetKernelArg(engine->vertexKernel, 3, sizeof(int), &totalTriangles);
+
+  clSetKernelArg(engine->fragmentKernel, 6, sizeof(cl_mem), &engine->trianglesBuf);
+  clSetKernelArg(engine->fragmentKernel, 7, sizeof(cl_mem), &engine->modelsBuf);
+  clSetKernelArg(engine->fragmentKernel, 8, sizeof(int), &numModels);
+  clSetKernelArg(engine->fragmentKernel, 9, sizeof(int), &totalTriangles);
+  clSetKernelArg(engine->fragmentKernel, 10, sizeof(cl_mem), &engine->pixelsBuf);
 }
 
 void engine_set_model_transform(CustomModel* model,f4x4 transform)
@@ -353,12 +347,12 @@ void engine_print_model_data(const CustomModel* model)
 
 void engine_free_model(CustomModel* model)
 {
-    arrfree(model->triangles);
-    model->triangles = NULL;
-    model->numTriangles = 0;
+  arrfree(model->triangles);
+  model->triangles = NULL;
+  model->numTriangles = 0;
 }
 
-void engine_create_camera(CustomCamera* camera, int width, int height, float fov, float near_plane, float far_plane)
+void engine_init_camera(CustomCamera* camera, int width, int height, float fov, float near_plane, float far_plane)
 {
   camera->Position = (f3){0.0f, 0.0f, 0.0f};
   camera->WorldUp = (f3){0.0f, 1.0f, 0.0f};

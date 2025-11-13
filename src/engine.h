@@ -18,21 +18,26 @@ typedef struct {
   cl_kernel vertexKernel;
   cl_kernel fragmentKernel;
 
+  cl_kernel test1;
+  cl_kernel test2;
+
   cl_mem frameBuffer;
   cl_mem depthBuffer;
-  cl_mem trisBuffer;
-  cl_mem mvpVertsBuffer;
+  cl_mem projectedVertsBuffer;
   cl_mem fragPosBuffer;
   cl_mem projectionBuffer;
   cl_mem viewBuffer;
-  cl_mem transformBuffer;
   cl_mem cameraPosBuffer;
-  cl_mem textureBuffer;
+
+  cl_mem trianglesBuf;
+  cl_mem pixelsBuf;
+  cl_mem modelsBuf;
 
   Color clearColor;
   size_t screen_resolution[2];
   Color* pixelBuffer;
   Texture2D texture;
+
 } Engine;
 
 typedef struct {
@@ -51,17 +56,6 @@ typedef struct {
     Color* pixels;
     f4x4 transform;
 } CustomModel;
-
-typedef struct {
-    int triangleOffset;
-    int triangleCount;
-    int vertexOffset;
-    int vertexCount;
-    int pixelOffset;
-    int texWidth;
-    int texHeight;
-    f4x4 transform;
-} CustomModelGPU;
 
 typedef enum Camera_Movement {
     FORWARD,
@@ -96,7 +90,7 @@ typedef struct
 } CustomCamera;
 
 void engine_init(Engine* engine,CustomCamera* camera,
-                 CustomModel* model,const char* kernel,
+                 const char* kernel,
                  int width, int height);
 
 void engine_background_color(Engine* engine, Color color);
@@ -108,7 +102,7 @@ void engine_clear_background(Engine* engine);
 void engine_send_camera_matrix(Engine* engine, CustomCamera* camera);
 
 
-void engine_run_rasterizer(Engine* engine, CustomModel* model);
+void engine_run_rasterizer(Engine* engine);
 
 
 void engine_read_and_display(Engine* engine);
@@ -117,10 +111,13 @@ void engine_read_and_display(Engine* engine);
 void engine_close(Engine* engine);
 
 
-void engine_load_model(CustomModel* model, const char* filePath,const char* texturePath, Color color);
+void engine_load_model(CustomModel* model, const char* filePath,const char* texturePath, Color color,f4x4 transform);
 
 
 void engine_set_model_transform(CustomModel* model,f4x4 transform);
+
+
+void engine_upload_models_data(Engine* engine);
 
 
 void engine_print_model_data(const CustomModel* model);

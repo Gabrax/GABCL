@@ -16,6 +16,17 @@ typedef struct {
     Pixel color;
 } Triangle;
 
+typedef struct {
+    int triangleOffset;
+    int triangleCount;
+    int vertexOffset;
+    int vertexCount;
+    int pixelOffset;
+    int texWidth;
+    int texHeight;
+    Mat4 transform;
+} CustomModelGPU;
+
 __kernel void clear_buffers(
     __global Pixel* pixels,
     __global float* depth,
@@ -32,35 +43,54 @@ __kernel void clear_buffers(
 
 __kernel void vertex_kernel(
     __global Triangle* tris,
+    __global CustomModelGPU* models,
+    int numModels,
+    int totalTriangles,
     __global float4* projVerts,
     __global Mat4* projection,
     __global Mat4* view,
-    __global Mat4* transform, // model matrix
-    int numTriangles,
+    __global float3* cameraPos,
     int width,
-    int height,
-    __global float3* cameraPos)
+    int height)
 {
   int i = get_global_id(0);
-  if (i >= numTriangles * 3) return;
+  if (i >= totalTriangles * 3) return;
 
   int triIdx = i / 3;
   int vertIdx = i % 3;
 
-  __global Triangle* tri = &tris[triIdx];
-  float4 vert = (float4)(tri->vertex[vertIdx].x,tri->vertex[vertIdx].y,tri->vertex[vertIdx].z, 1.0f);
+  // --- Find which model this triangle belongs to ---
+  int modelIndex = 0;
+  for (int m = 0; m < numModels; m++) {
+      if (triIdx >= models[m].triangleOffset &&
+          triIdx < models[m].triangleOffset + models[m].triangleCount) {
+          modelIndex = m;
+          break;
+      }
+  }
 
+  CustomModelGPU model = models[modelIndex];
+  __global Triangle* tri = &tris[triIdx];
+
+  float4 vert = (float4)(
+      tri->vertex[vertIdx].x,
+      tri->vertex[vertIdx].y,
+      tri->vertex[vertIdx].z,
+      1.0f
+  );
+
+  Mat4 transform2 = model.transform;
   float4 v_model;
-  v_model.x = vert.x * transform->x0 + vert.y * transform->x1 + vert.z * transform->x2 + vert.w * transform->x3;
-  v_model.y = vert.x * transform->y0 + vert.y * transform->y1 + vert.z * transform->y2 + vert.w * transform->y3;
-  v_model.z = vert.x * transform->z0 + vert.y * transform->z1 + vert.z * transform->z2 + vert.w * transform->z3;
-  v_model.w = vert.x * transform->w0 + vert.y * transform->w1 + vert.z * transform->w2 + vert.w * transform->w3;
+  v_model.x = vert.x * transform2.x0 + vert.y * transform2.x1 + vert.z * transform2.x2 + vert.w * transform2.x3;
+  v_model.y = vert.x * transform2.y0 + vert.y * transform2.y1 + vert.z * transform2.y2 + vert.w * transform2.y3;
+  v_model.z = vert.x * transform2.z0 + vert.y * transform2.z1 + vert.z * transform2.z2 + vert.w * transform2.z3;
+  v_model.w = vert.x * transform2.w0 + vert.y * transform2.w1 + vert.z * transform2.w2 + vert.w * transform2.w3;
 
   float3 normal = (float3)(tri->normal[vertIdx].x,tri->normal[vertIdx].y,tri->normal[vertIdx].z);
   float3 normal_world = normalize((float3)(
-      normal.x * transform->x0 + normal.y * transform->x1 + normal.z * transform->x2,
-      normal.x * transform->y0 + normal.y * transform->y1 + normal.z * transform->y2,
-      normal.x * transform->z0 + normal.y * transform->z1 + normal.z * transform->z2
+      normal.x * transform2.x0 + normal.y * transform2.x1 + normal.z * transform2.x2,
+      normal.x * transform2.y0 + normal.y * transform2.y1 + normal.z * transform2.y2,
+      normal.x * transform2.z0 + normal.y * transform2.z1 + normal.z * transform2.z2
   ));
 
   float3 viewDir = normalize(*cameraPos - (float3)(v_model.x, v_model.y, v_model.z));
@@ -151,14 +181,13 @@ inline Pixel sample_texture_bilinear(__global Pixel* texture, int texWidth, int 
 
 __kernel void fragment_kernel(
     __global Pixel* pixels,
-    __global Triangle* tris,
     __global float4* projVerts,
-    int numTriangles,
     int width,
     int height,
     __global float* depthBuffer,
     __global float3* cameraPos,
-    __global Pixel* texture, int texWidth,int texHeight)
+    __global Triangle* tris2,__global CustomModelGPU* models,int numModels,
+    int totalTriangles,__global Pixel* textures)
 {
     int x = get_global_id(0);
     int y = get_global_id(1);
@@ -169,82 +198,85 @@ __kernel void fragment_kernel(
 
     float3 dirToLight = normalize((float3){0.0f, 5.0f, 2.0f});
 
-    for (int tri = 0; tri < numTriangles; tri++)
+    for (int modelidx = 0; modelidx < numModels; modelidx++)
     {
-        float4 pv0 = projVerts[tri*3 + 0];
-        float4 pv1 = projVerts[tri*3 + 1];
-        float4 pv2 = projVerts[tri*3 + 2];
+        CustomModelGPU model = models[modelidx];
 
-        // Skip culled
-        if (pv0.w == -FLT_MAX || pv1.w == -FLT_MAX || pv2.w == -FLT_MAX)
-            continue;
-
-        float2 v0 = (float2)(pv0.x, pv0.y);
-        float2 v1 = (float2)(pv1.x, pv1.y);
-        float2 v2 = (float2)(pv2.x, pv2.y);
-
-        float area = SignedTriangleArea(v0, v1, v2);
-        if (area <= 0.0f) continue;
-
-        float a = SignedTriangleArea(P, v1, v2) / area;
-        float b = SignedTriangleArea(P, v2, v0) / area;
-        float g = SignedTriangleArea(P, v0, v1) / area;
-
-        if (a >= 0 && b >= 0 && g >= 0)
+        for (int triIdx = model.triangleOffset;
+             triIdx < model.triangleOffset + model.triangleCount;
+             triIdx++)
         {
-            float z0 = pv0.z / pv0.w;
-            float z1 = pv1.z / pv1.w;
-            float z2 = pv2.z / pv2.w;
-            float depth = a*z0 + b*z1 + g*z2;
+            float4 pv0 = projVerts[triIdx * 3 + 0];
+            float4 pv1 = projVerts[triIdx * 3 + 1];
+            float4 pv2 = projVerts[triIdx * 3 + 2];
 
-            if (depth < depthBuffer[idx])
+            if (pv0.w == -FLT_MAX || pv1.w == -FLT_MAX || pv2.w == -FLT_MAX)
+                continue;
+
+            float2 v0 = (float2)(pv0.x, pv0.y);
+            float2 v1 = (float2)(pv1.x, pv1.y);
+            float2 v2 = (float2)(pv2.x, pv2.y);
+
+            float area = SignedTriangleArea(v0, v1, v2);
+            if (area <= 0.0f) continue;
+
+            float a = SignedTriangleArea(P, v1, v2) / area;
+            float b = SignedTriangleArea(P, v2, v0) / area;
+            float g = SignedTriangleArea(P, v0, v1) / area;
+
+            if (a >= 0 && b >= 0 && g >= 0)
             {
-                __global Triangle* t = &tris[tri];
-                float3 baseColor = (float3)(
-                    t->color.r / 255.0f,
-                    t->color.g / 255.0f,
-                    t->color.b / 255.0f
-                );
+                float z0 = pv0.z / pv0.w;
+                float z1 = pv1.z / pv1.w;
+                float z2 = pv2.z / pv2.w;
+                float depth = a*z0 + b*z1 + g*z2;
 
-                float2 uv0 = (float2){t->uv[0].x,t->uv[0].y};
-                float2 uv1 = (float2){t->uv[1].x,t->uv[1].y};
-                float2 uv2 = (float2){t->uv[2].x,t->uv[2].y};
-
-                float2 uv = (uv0 * (a * z0) +
-                             uv1 * (b * z1) +
-                             uv2 * (g * z2)) / depth;
-
-                float3 normal0 = (float3){t->normal[0].x,t->normal[0].y,t->normal[0].z};
-                float3 normal1 = (float3){t->normal[1].x,t->normal[1].y,t->normal[1].z};
-                float3 normal2 = (float3){t->normal[2].x,t->normal[2].y,t->normal[2].z};
-
-                float3 normal = (normal0 * (a * z0) +
-                                 normal1 * (b * z1) +
-                                 normal2 * (g * z2)) / depth;
-                float3 norm = normalize(normal);
-
-                float light_intensity = fmax(0.1f,dot(norm,dirToLight));
-
-                float3 finalColor;
-                if(texture != NULL)
+                if (depth < depthBuffer[idx])
                 {
-                  Pixel texel = sample_texture(texture, texWidth, texHeight, uv);
-                  float3 texColor = (float3){texel.r, texel.g, texel.b} / 255.0f;
-                  finalColor = texColor * light_intensity;
-                } else finalColor = (float3){1.0,1.0,1.0} * light_intensity;
+                    __global Triangle* t = &tris2[triIdx];
 
-                pixels[idx] = (Pixel){
-                    (uchar)(finalColor.x * 255),
-                    (uchar)(finalColor.y * 255),
-                    (uchar)(finalColor.z * 255),
-                    255
-                };
+                    float2 uv0 = (float2){t->uv[0].x,t->uv[0].y};
+                    float2 uv1 = (float2){t->uv[1].x,t->uv[1].y};
+                    float2 uv2 = (float2){t->uv[2].x,t->uv[2].y};
 
-                depthBuffer[idx] = depth;
+                    float2 uv = (uv0 * (a * z0) +
+                                 uv1 * (b * z1) +
+                                 uv2 * (g * z2)) / depth;
+
+                    float3 norm0 = (float3){t->normal[0].x,t->normal[0].y,t->normal[0].z};
+                    float3 norm1 = (float3){t->normal[1].x,t->normal[1].y,t->normal[1].z};
+                    float3 norm2 = (float3){t->normal[2].x,t->normal[2].y,t->normal[2].z};
+                    float3 norm = normalize((norm0*(a*z0) + norm1*(b*z1) + norm2*(g*z2)) / depth);
+
+                    int texOffset = model.pixelOffset;
+                    int tw = model.texWidth;
+                    int th = model.texHeight;
+
+                    float3 texColor;
+                    if (tw > 0 && th > 0) {
+                        Pixel texel = sample_texture(&textures[texOffset], tw, th, uv);
+                        texColor = (float3){texel.r, texel.g, texel.b} / 255.0f;
+                    } else {
+                        texColor = (float3)(0.8f, 0.8f, 0.8f);
+                    }
+                
+                    float light_intensity = fmax(0.1f, dot(norm, dirToLight));
+                    float3 finalColor = texColor * light_intensity;
+
+                    pixels[idx] = (Pixel){
+                        (uchar)(finalColor.x * 255),
+                        (uchar)(finalColor.y * 255),
+                        (uchar)(finalColor.z * 255),
+                        255
+                    };
+
+                    depthBuffer[idx] = depth;
+                }
             }
         }
     }
 }
+
 // WIREFRAME
 /*__kernel void fragment_kernel(*/
 /*    __global Pixel* pixels,*/
