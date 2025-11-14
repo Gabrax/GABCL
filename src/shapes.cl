@@ -25,7 +25,7 @@ typedef struct {
     int texWidth;
     int texHeight;
     Mat4 transform;
-} CustomModelGPU;
+} CustomModel;
 
 __kernel void clear_buffers(
     __global Pixel* pixels,
@@ -43,7 +43,7 @@ __kernel void clear_buffers(
 
 __kernel void vertex_kernel(
     __global Triangle* tris,
-    __global CustomModelGPU* models,
+    __global CustomModel* models,
     int numModels,
     int totalTriangles,
     __global float4* projVerts,
@@ -69,7 +69,7 @@ __kernel void vertex_kernel(
       }
   }
 
-  CustomModelGPU model = models[modelIndex];
+  CustomModel model = models[modelIndex];
   __global Triangle* tri = &tris[triIdx];
 
   float4 vert = (float4)(
@@ -186,7 +186,7 @@ __kernel void fragment_kernel(
     int height,
     __global float* depthBuffer,
     __global float3* cameraPos,
-    __global Triangle* tris2,__global CustomModelGPU* models,int numModels,
+    __global Triangle* tris2,__global CustomModel* models,int numModels,
     int totalTriangles,__global Pixel* textures)
 {
     int x = get_global_id(0);
@@ -196,11 +196,11 @@ __kernel void fragment_kernel(
     int idx = y * width + x;
     float2 P = (float2)(x + 0.5f, y + 0.5f); // pixel center
 
-    float3 dirToLight = normalize((float3){0.0f, 5.0f, 2.0f});
+    float3 dirToLight = normalize((float3){5.0f, 5.0f, 0.0f});
 
     for (int modelidx = 0; modelidx < numModels; modelidx++)
     {
-        CustomModelGPU model = models[modelidx];
+        CustomModel model = models[modelidx];
 
         for (int triIdx = model.triangleOffset;
              triIdx < model.triangleOffset + model.triangleCount;

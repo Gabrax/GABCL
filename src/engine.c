@@ -1,4 +1,6 @@
 #include "engine.h"
+#include "CL/cl.h"
+#include "raylib.h"
 
 #define GABMATH_IMPLEMENTATION
 #include "gab_math.h"
@@ -12,6 +14,60 @@
 #include <time.h>
 #include <stdbool.h>
 
+static cl_platform_id s_platform;
+static cl_device_id s_device;
+static cl_program s_program;
+static cl_context s_context;
+static cl_command_queue s_queue;
+static cl_int s_err;
+
+static cl_kernel s_clearKernel;
+static cl_kernel s_vertexKernel;
+static cl_kernel s_fragmentKernel;
+
+static cl_mem s_frameBuffer;
+static cl_mem s_depthBuffer;
+static cl_mem s_projectedVertsBuffer;
+static cl_mem s_fragPosBuffer;
+static cl_mem s_projectionBuffer;
+static cl_mem s_viewBuffer;
+static cl_mem s_cameraPosBuffer;
+static cl_mem s_trianglesBuffer;
+static cl_mem s_pixelsBuffer;
+static cl_mem s_modelsBuffer;
+
+static Color s_backgroundColor;
+static size_t s_screenResolution[2];
+static Color* s_pixelBuffer = NULL;
+static Texture2D s_outputTexture;
+
+typedef struct 
+{
+  f3 Position;
+  f3 Front;
+  f3 Up;
+  f3 Right;
+  f3 WorldUp;
+  f4x4 proj;
+  f4x4 look_at;
+  float near_plane;
+  float far_plane;
+  float fov;
+  float fov_rad;
+  float aspect_ratio;
+  float yaw;
+  float pitch;
+  float speed;
+  float sens;
+  float lastX;
+  float lastY;
+  bool firstMouse;
+  float deltaTime;
+
+} CustomCamera;
+
+static CustomCamera s_camera = {0};
+
 typedef struct {
     int triangleOffset;
     int triangleCount;
@@ -21,404 +77,412 @@ typedef struct {
     int texWidth;
     int texHeight;
     f4x4 transform;
-} CustomModelGPU;
+} CustomModel;
 
-static CustomModel* models = NULL;
-static Triangle* allTriangles = NULL;
-static Color* allTexturePixels = NULL;
-static CustomModelGPU* gpuModels = NULL;
+static Triangle* s_allTriangles = NULL;
+static Color* s_allTexturePixels = NULL;
+static CustomModel* s_Models = NULL;
 
-static size_t totalTriangles = 0;
-static size_t totalTexturePixels = 0;
+static size_t s_totalTriangles = 0;
+static size_t s_totalTexturePixels = 0;
+static size_t s_triOffset = 0;
+static size_t s_pixOffset = 0;
 
-static size_t triOffset = 0;
-static size_t pixOffset = 0;
-
-inline const char* loadKernel(const char* filename) {
-    FILE* f = fopen(filename, "rb");
-    if(!f) { printf("Cannot open kernel file.\n"); return NULL; }
-    fseek(f,0,SEEK_END);
-    size_t size = ftell(f);
-    fseek(f,0,SEEK_SET);
-    char* src = (char*)malloc(size+1);
-    fread(src,1,size,f);
-    src[size] = '\0';
-    fclose(f);
-    return src;
+static const char* engine_load_kernel(const char* filename)
+{
+  FILE* f = fopen(filename, "rb");
+  if(!f) { printf("Cannot open kernel file.\n"); return NULL; }
+  fseek(f,0,SEEK_END);
+  size_t size = ftell(f);
+  fseek(f,0,SEEK_SET);
+  char* src = (char*)malloc(size+1);
+  fread(src,1,size,f);
+  src[size] = '\0';
+  fclose(f);
+  return src;
 }
 
-void engine_init(Engine* engine,CustomCamera* camera,const char* kernel,int width, int height)
+void engine_init(const char* kernel,int width, int height)
 {
-  clGetPlatformIDs(1, &engine->platform, NULL);
-  clGetDeviceIDs(engine->platform, CL_DEVICE_TYPE_GPU, 1, &engine->device, NULL);
+  clGetPlatformIDs(1, &s_platform, NULL);
+  clGetDeviceIDs(s_platform, CL_DEVICE_TYPE_GPU, 1, &s_device, NULL);
 
-  engine->context = clCreateContext(NULL, 1, &engine->device, NULL, NULL, NULL);
-  engine->queue = clCreateCommandQueue(engine->context, engine->device, 0, NULL);
+  s_context = clCreateContext(NULL, 1, &s_device, NULL, NULL, NULL);
+  s_queue = clCreateCommandQueue(s_context, s_device, 0, NULL);
   
-  const char* kernelSource = loadKernel(kernel); 
-  engine->program = clCreateProgramWithSource(engine->context, 1, &kernelSource, NULL, &engine->err);
-  if (engine->err != CL_SUCCESS) { printf("Error creating program: %d\n", engine->err); }
+  const char* kernelSource = engine_load_kernel(kernel); 
+  s_program = clCreateProgramWithSource(s_context, 1, &kernelSource, NULL, &s_err);
+  if (s_err != CL_SUCCESS) { printf("Error creating program: %d\n", s_err); }
 
-  engine->err = clBuildProgram(engine->program, 1, &engine->device, NULL, NULL, NULL);
-  if (engine->err != CL_SUCCESS) {
+  s_err = clBuildProgram(s_program, 1, &s_device, NULL, NULL, NULL);
+  if (s_err != CL_SUCCESS) {
       size_t log_size;
-      clGetProgramBuildInfo(engine->program, engine->device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+      clGetProgramBuildInfo(s_program, s_device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
       char* log = (char*)malloc(log_size);
-      clGetProgramBuildInfo(engine->program, engine->device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+      clGetProgramBuildInfo(s_program, s_device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
       printf("OpenCL build error:\n%s\n", log);
       free(log);
   }
 
-  engine->screen_resolution[0] = width;
-  engine->screen_resolution[1] = height;
+  s_screenResolution[0] = width;
+  s_screenResolution[1] = height;
 
-  engine->clearKernel    = clCreateKernel(engine->program, "clear_buffers", NULL);
-  engine->vertexKernel   = clCreateKernel(engine->program, "vertex_kernel", NULL);
-  engine->fragmentKernel = clCreateKernel(engine->program, "fragment_kernel", NULL);
+  s_clearKernel    = clCreateKernel(s_program, "clear_buffers", NULL);
+  s_vertexKernel   = clCreateKernel(s_program, "vertex_kernel", NULL);
+  s_fragmentKernel = clCreateKernel(s_program, "fragment_kernel", NULL);
 
-  engine->frameBuffer = clCreateBuffer(engine->context, CL_MEM_WRITE_ONLY, 
-                                      engine->screen_resolution[0] * engine->screen_resolution[1]
+  s_frameBuffer = clCreateBuffer(s_context, CL_MEM_WRITE_ONLY, 
+                                      s_screenResolution[0] * s_screenResolution[1]
                                               * sizeof(Color), NULL, NULL);
-  engine->depthBuffer = clCreateBuffer(engine->context, CL_MEM_READ_WRITE,
-                                      sizeof(float) * engine->screen_resolution[0]
-                                                    * engine->screen_resolution[1],
-                                                    NULL, &engine->err);
-  engine->projectionBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
-                                            sizeof(f4x4), NULL, &engine->err);
-  engine->viewBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
-                                      sizeof(f4x4), NULL, &engine->err);
-  engine->cameraPosBuffer  = clCreateBuffer(engine->context, CL_MEM_READ_ONLY,
-                                           sizeof(f3), NULL, &engine->err);
+  s_depthBuffer = clCreateBuffer(s_context, CL_MEM_READ_WRITE,
+                                      sizeof(float) * s_screenResolution[0]
+                                                    * s_screenResolution[1],
+                                                    NULL, &s_err);
 
-  clSetKernelArg(engine->clearKernel, 0, sizeof(cl_mem), &engine->frameBuffer);
-  clSetKernelArg(engine->clearKernel, 1, sizeof(cl_mem), &engine->depthBuffer);
-  clSetKernelArg(engine->clearKernel, 2, sizeof(int), &engine->screen_resolution[0]);
-  clSetKernelArg(engine->clearKernel, 3, sizeof(int), &engine->screen_resolution[1]);
-  clEnqueueNDRangeKernel(engine->queue, engine->clearKernel, 2, NULL,
-                         engine->screen_resolution, NULL, 0, NULL, NULL);
+  clSetKernelArg(s_clearKernel, 0, sizeof(cl_mem), &s_frameBuffer);
+  clSetKernelArg(s_clearKernel, 1, sizeof(cl_mem), &s_depthBuffer);
+  clSetKernelArg(s_clearKernel, 2, sizeof(int), &s_screenResolution[0]);
+  clSetKernelArg(s_clearKernel, 3, sizeof(int), &s_screenResolution[1]);
+  clEnqueueNDRangeKernel(s_queue, s_clearKernel, 2, NULL, s_screenResolution, NULL, 0, NULL, NULL);
 
-  clSetKernelArg(engine->vertexKernel, 5, sizeof(cl_mem), &engine->projectionBuffer); 
-  clSetKernelArg(engine->vertexKernel, 6, sizeof(cl_mem), &engine->viewBuffer); 
-  clSetKernelArg(engine->vertexKernel, 7, sizeof(cl_mem), &engine->cameraPosBuffer);
-  clSetKernelArg(engine->vertexKernel, 8, sizeof(int), &engine->screen_resolution[0]);
-  clSetKernelArg(engine->vertexKernel, 9, sizeof(int), &engine->screen_resolution[1]);
+  clSetKernelArg(s_vertexKernel, 8, sizeof(int), &s_screenResolution[0]);
+  clSetKernelArg(s_vertexKernel, 9, sizeof(int), &s_screenResolution[1]);
 
-  clSetKernelArg(engine->fragmentKernel, 0, sizeof(cl_mem), &engine->frameBuffer);
-  clSetKernelArg(engine->fragmentKernel, 2, sizeof(int), &engine->screen_resolution[0]);
-  clSetKernelArg(engine->fragmentKernel, 3, sizeof(int), &engine->screen_resolution[1]);
-  clSetKernelArg(engine->fragmentKernel, 4, sizeof(cl_mem), &engine->depthBuffer);
-  clSetKernelArg(engine->fragmentKernel, 5, sizeof(cl_mem), &engine->cameraPosBuffer);
+  clSetKernelArg(s_fragmentKernel, 0, sizeof(cl_mem), &s_frameBuffer);
+  clSetKernelArg(s_fragmentKernel, 2, sizeof(int), &s_screenResolution[0]);
+  clSetKernelArg(s_fragmentKernel, 3, sizeof(int), &s_screenResolution[1]);
+  clSetKernelArg(s_fragmentKernel, 4, sizeof(cl_mem), &s_depthBuffer);
 
-  Image img = GenImageColor(engine->screen_resolution[0], engine->screen_resolution[1], engine->clearColor);
-  engine->texture = LoadTextureFromImage(img);
+  Image img = GenImageColor(s_screenResolution[0], s_screenResolution[1], s_backgroundColor);
+  s_outputTexture = LoadTextureFromImage(img);
   free(img.data); // pixel buffer is managed by OpenCL
 
-  engine->pixelBuffer = (Color*)malloc(engine->screen_resolution[0]
-                                       * engine->screen_resolution[1] 
-                                       * sizeof(Color));
-  
-  clEnqueueWriteBuffer(engine->queue, engine->projectionBuffer, CL_TRUE, 0,
-                       sizeof(f4x4), &camera->proj, 0, NULL, NULL);
+  s_pixelBuffer = (Color*)malloc(s_screenResolution[0] * s_screenResolution[1] * sizeof(Color));
 }
 
-void engine_background_color(Engine* engine, Color color)
+void engine_background_color(Color color)
 {
-  clSetKernelArg(engine->clearKernel, 4, sizeof(Color), &color);
+  clSetKernelArg(s_clearKernel, 4, sizeof(Color), &color);
 }
 
-void engine_clear_background(Engine* engine)
+void engine_clear_background()
 {
-  clEnqueueNDRangeKernel(engine->queue, engine->clearKernel, 2, NULL, engine->screen_resolution, NULL, 0, NULL, NULL);
+  clEnqueueNDRangeKernel(s_queue, s_clearKernel, 2, NULL, s_screenResolution, NULL, 0, NULL, NULL);
 }
 
-void engine_send_camera_matrix(Engine* engine, CustomCamera* camera)
+void engine_send_camera_matrix()
 {
-  clEnqueueWriteBuffer(engine->queue, engine->cameraPosBuffer, CL_TRUE, 0,
-                       sizeof(f3), &camera->Position, 0, NULL, NULL);
-  clEnqueueWriteBuffer(engine->queue, engine->viewBuffer, CL_TRUE, 0,
-                       sizeof(f4x4), &camera->look_at, 0, NULL, NULL);
+  clEnqueueWriteBuffer(s_queue, s_cameraPosBuffer, CL_TRUE, 0,
+                       sizeof(f3), &s_camera.Position, 0, NULL, NULL);
+  clEnqueueWriteBuffer(s_queue, s_viewBuffer, CL_TRUE, 0,
+                       sizeof(f4x4), &s_camera.look_at, 0, NULL, NULL);
 }
 
-void engine_run_rasterizer(Engine* engine)
+void engine_run_rasterizer()
 {
-  clEnqueueNDRangeKernel(engine->queue, engine->vertexKernel, 1, NULL,
-                         &totalTriangles, NULL, 0, NULL, NULL);
-  clEnqueueNDRangeKernel(engine->queue, engine->fragmentKernel, 2, NULL,
-                         engine->screen_resolution, NULL, 0, NULL, NULL);
+  clEnqueueNDRangeKernel(s_queue, s_vertexKernel, 1, NULL,
+                         &s_totalTriangles, NULL, 0, NULL, NULL);
+  clEnqueueNDRangeKernel(s_queue, s_fragmentKernel, 2, NULL,
+                         s_screenResolution, NULL, 0, NULL, NULL);
 }
 
-void engine_read_and_display(Engine* engine)
+void engine_read_and_display()
 {
-  clEnqueueReadBuffer(engine->queue, engine->frameBuffer, CL_TRUE, 0,
-                      engine->screen_resolution[0] * engine->screen_resolution[1] * sizeof(Color),
-                      engine->pixelBuffer, 0, NULL, NULL);
-  
-  clFinish(engine->queue);
-  clEnqueueReadBuffer(engine->queue, engine->frameBuffer, CL_TRUE, 0,
-                      engine->screen_resolution[0] * engine->screen_resolution[1] * sizeof(Color),
-                      engine->pixelBuffer, 0, NULL, NULL);
+  clEnqueueReadBuffer(s_queue, s_frameBuffer, CL_TRUE, 0,
+                      s_screenResolution[0] * s_screenResolution[1] * sizeof(Color),
+                      s_pixelBuffer, 0, NULL, NULL);
+  clFinish(s_queue);
 
-  UpdateTexture(engine->texture, engine->pixelBuffer);
+  UpdateTexture(s_outputTexture, s_pixelBuffer);
   BeginDrawing();
-  DrawTexture(engine->texture, 0, 0, WHITE);
+  DrawTexture(s_outputTexture, 0, 0, WHITE);
   EndDrawing();
 }
 
-void engine_close(Engine* engine)
+void engine_close()
 {
-  free(engine->pixelBuffer);
+  free(s_pixelBuffer);
 
-  UnloadTexture(engine->texture);
+  UnloadTexture(s_outputTexture);
   CloseWindow();
 
-  clReleaseMemObject(engine->frameBuffer);
-  clReleaseMemObject(engine->projectedVertsBuffer);
-  clReleaseKernel(engine->vertexKernel);
-  clReleaseKernel(engine->fragmentKernel);
-  clReleaseProgram(engine->program);
-  clReleaseCommandQueue(engine->queue);
-  clReleaseContext(engine->context);
+  clReleaseDevice(s_device);
+  clReleaseProgram(s_program);
+  clReleaseCommandQueue(s_queue);
+  clReleaseContext(s_context);
+
+  clReleaseKernel(s_clearKernel);
+  clReleaseKernel(s_vertexKernel);
+  clReleaseKernel(s_fragmentKernel);
+
+  clReleaseMemObject(s_frameBuffer);
+  clReleaseMemObject(s_depthBuffer);
+  clReleaseMemObject(s_projectedVertsBuffer);
+  clReleaseMemObject(s_projectionBuffer);
+  clReleaseMemObject(s_viewBuffer);
+  clReleaseMemObject(s_cameraPosBuffer);
+  clReleaseMemObject(s_trianglesBuffer);
+  clReleaseMemObject(s_pixelsBuffer);
+  clReleaseMemObject(s_modelsBuffer);
 }
 
-void engine_load_model(CustomModel* model, const char* filePath,const char* texturePath, Color color,f4x4 transform)
+void engine_load_model(const char* filePath, const char* texturePath, f4x4 transform)
 {
-    static int seeded = 0;
-    if (!seeded) {
-        srand((unsigned int)time(NULL));
-        seeded = 1;
-    }
+  const struct aiScene* scene = aiImportFile(
+      filePath,
+      aiProcess_Triangulate |
+      aiProcess_JoinIdenticalVertices |
+      aiProcess_GenSmoothNormals |
+      aiProcess_ImproveCacheLocality |
+      aiProcess_OptimizeMeshes
+  );
 
-    const struct aiScene* scene = aiImportFile(
-        filePath,
-        aiProcess_Triangulate |          // convert all faces to triangles
-        aiProcess_JoinIdenticalVertices |// merge shared vertices
- aiProcess_GenSmoothNormals |     // generate smooth vertex normals
-        aiProcess_ImproveCacheLocality | // better vertex cache usage
-        aiProcess_OptimizeMeshes         // reduce draw calls
-    );
-
-    if (!scene || scene->mNumMeshes == 0) {
-        fprintf(stderr, "Failed to load model: %s\n", filePath);
-        aiReleaseImport(scene);
-        return;
-    }
-
-    for (unsigned int m = 0; m < scene->mNumMeshes; m++) {
-        const struct aiMesh* mesh = scene->mMeshes[m];
-
-        for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
-            const struct aiFace* face = &mesh->mFaces[f];
-            if (face->mNumIndices != 3) continue; // skip non-triangles
-
-            Triangle tri = {0};
-            for (int i = 0; i < 3; i++) {
-                unsigned int idx = face->mIndices[i];
-                if (mesh->mVertices) {
-                    tri.vertex[i].x = mesh->mVertices[idx].x;
-                    tri.vertex[i].y = mesh->mVertices[idx].y;
-                    tri.vertex[i].z = mesh->mVertices[idx].z;
-                }
-                if (mesh->mNormals) {
-                    tri.normal[i].x = mesh->mNormals[idx].x;
-                    tri.normal[i].y = mesh->mNormals[idx].y;
-                    tri.normal[i].z = mesh->mNormals[idx].z;
-                }
-                if (mesh->mTextureCoords[0]) {
-                    tri.uv[i].x = mesh->mTextureCoords[0][idx].x;
-                    tri.uv[i].y = mesh->mTextureCoords[0][idx].y;
-                }
-            }
-            Color c;
-            c.r = rand() % 256; // 0-255
-            c.g = rand() % 256;
-            c.b = rand() % 256;
-            c.a = 255;           // fully opaque
-            tri.color = c;
-            arrpush(model->triangles, tri);
-        }
-    }
-
-    model->numTriangles = arrlen(model->triangles);
-    model->numVertices = model->numTriangles * 3;
-    arrpush(models,*model);
-    aiReleaseImport(scene);
-
-  if(texturePath)
-  {
-    Image img = LoadImage(texturePath);
-    model->texWidth = img.width;
-    model->texHeight = img.height;
-    model->pixels = (Color*)img.data;
-    /*UnloadImage(img);*/
+  if (!scene || scene->mNumMeshes == 0) {
+      fprintf(stderr, "Failed to load model: %s\n", filePath);
+      aiReleaseImport(scene);
+      return;
   }
 
-  model->transform = transform;
+  Triangle* triangles = NULL;
+  size_t numTriangles = 0;
+  size_t numVertices = 0;
 
+  for (unsigned int m = 0; m < scene->mNumMeshes; m++) {
+      const struct aiMesh* mesh = scene->mMeshes[m];
 
-  for (size_t t = 0; t < model->numTriangles; t++) {
-      arrpush(allTriangles, model->triangles[t]);
+      for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
+          const struct aiFace* face = &mesh->mFaces[f];
+          if (face->mNumIndices != 3) continue; // skip non-triangles
+
+          Triangle tri = {0};
+          for (int i = 0; i < 3; i++) {
+              unsigned int idx = face->mIndices[i];
+
+              if (mesh->mVertices) {
+                  tri.vertex[i].x = mesh->mVertices[idx].x;
+                  tri.vertex[i].y = mesh->mVertices[idx].y;
+                  tri.vertex[i].z = mesh->mVertices[idx].z;
+              }
+              if (mesh->mNormals) {
+                  tri.normal[i].x = mesh->mNormals[idx].x;
+                  tri.normal[i].y = mesh->mNormals[idx].y;
+                  tri.normal[i].z = mesh->mNormals[idx].z;
+              }
+              if (mesh->mTextureCoords[0]) {
+                  tri.uv[i].x = mesh->mTextureCoords[0][idx].x;
+                  tri.uv[i].y = mesh->mTextureCoords[0][idx].y;
+              }
+          }
+
+          arrpush(triangles, tri);
+          numTriangles++;
+          numVertices += 3;
+      }
   }
 
-  size_t numPixels = model->texWidth * model->texHeight;
-  for (size_t p = 0; p < numPixels; p++) {
-      arrpush(allTexturePixels, model->pixels[p]);
-  }
+  aiReleaseImport(scene);
 
-  CustomModelGPU m;
-  m.triangleOffset = triOffset;
-  m.triangleCount  = (int)model->numTriangles;
-  m.vertexOffset   = 0;
-  m.vertexCount    = 0;
-  m.pixelOffset    = pixOffset;
-  m.texWidth       = model->texWidth  > 0 ? model->texWidth  : 0;
-  m.texHeight      = model->texHeight > 0 ? model->texHeight : 0;
-  m.transform      = transform;
-  arrpush(gpuModels, m);
+  int texWidth = 0, texHeight = 0;
+  Color* pixels = NULL;
 
-  triOffset += model->numTriangles;
-  pixOffset += numPixels;
+  if (texturePath) {
+      Image img = LoadImage(texturePath);
+      texWidth = img.width;
+      texHeight = img.height;
 
-  totalTriangles += model->numTriangles;
-  totalTexturePixels += model->texWidth * model->texHeight;
-}
-
-void engine_upload_models_data(Engine* engine)
-{  
-  int numModels = arrlen(gpuModels);
-  totalTriangles *= 3;
-
-  engine->trianglesBuf = clCreateBuffer(engine->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-        arrlen(allTriangles) * sizeof(Triangle), allTriangles, &engine->err);
-
-  engine->pixelsBuf = clCreateBuffer(engine->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-        arrlen(allTexturePixels) * sizeof(Color), allTexturePixels, &engine->err);
-
-  engine->modelsBuf = clCreateBuffer(engine->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-        arrlen(gpuModels) * sizeof(CustomModelGPU), gpuModels, &engine->err);
-
-  engine->projectedVertsBuffer = clCreateBuffer(engine->context, CL_MEM_READ_WRITE,
-                                          sizeof(f4) * totalTriangles, NULL, NULL);
-
-  clSetKernelArg(engine->vertexKernel, 4, sizeof(cl_mem), &engine->projectedVertsBuffer);
-  clSetKernelArg(engine->fragmentKernel, 1, sizeof(cl_mem), &engine->projectedVertsBuffer);
-
-  clSetKernelArg(engine->vertexKernel, 0, sizeof(cl_mem), &engine->trianglesBuf);
-  clSetKernelArg(engine->vertexKernel, 1, sizeof(cl_mem), &engine->modelsBuf);
-  clSetKernelArg(engine->vertexKernel, 2, sizeof(int), &numModels);
-  clSetKernelArg(engine->vertexKernel, 3, sizeof(int), &totalTriangles);
-
-  clSetKernelArg(engine->fragmentKernel, 6, sizeof(cl_mem), &engine->trianglesBuf);
-  clSetKernelArg(engine->fragmentKernel, 7, sizeof(cl_mem), &engine->modelsBuf);
-  clSetKernelArg(engine->fragmentKernel, 8, sizeof(int), &numModels);
-  clSetKernelArg(engine->fragmentKernel, 9, sizeof(int), &totalTriangles);
-  clSetKernelArg(engine->fragmentKernel, 10, sizeof(cl_mem), &engine->pixelsBuf);
-}
-
-void engine_set_model_transform(CustomModel* model,f4x4 transform)
-{
-  model->transform = transform;
-}
-
-void engine_print_model_data(const CustomModel* model)
-{
-  for (int i = 0; i < model->numTriangles; i++) {
-      const Triangle* t = &model->triangles[i];
-      printf("Triangle %d:\n", i);
-
-      for (int v = 0; v < 3; v++) {
-          printf("  Vertex %d:\n", v);
-          printf("    Position: (%f, %f, %f)\n",
-                 t->vertex[v].x,
-                 t->vertex[v].y,
-                 t->vertex[v].z);
-          printf("    UV:        (%f, %f)\n",
-                 t->uv[v].x,
-                 t->uv[v].y);
-          printf("    Normal:    (%f, %f, %f)\n",
-                 t->normal[v].x,
-                 t->normal[v].y,
-                 t->normal[v].z);
+      if (texWidth > 0 && texHeight > 0) {
+          pixels = (Color*)malloc(texWidth * texHeight * sizeof(Color));
+          memcpy(pixels, img.data, texWidth * texHeight * sizeof(Color));
       }
 
-      printf("  Color: (r=%d g=%d b=%d a=%d)\n\n",
-             t->color.r, t->color.g, t->color.b, t->color.a);
+      UnloadImage(img); // free Raylib image memory
   }
+
+  for (size_t t = 0; t < numTriangles; t++)
+      arrpush(s_allTriangles, triangles[t]);
+
+  if (pixels) {
+      size_t numPixels = texWidth * texHeight;
+      for (size_t p = 0; p < numPixels; p++)
+          arrpush(s_allTexturePixels, pixels[p]);
+      free(pixels);
+  }
+
+  CustomModel m;
+  m.triangleOffset = s_triOffset;
+  m.triangleCount  = (int)numTriangles;
+  m.vertexOffset   = 0;
+  m.vertexCount    = (int)numVertices;
+  m.pixelOffset    = s_pixOffset;
+  m.texWidth       = texWidth;
+  m.texHeight      = texHeight;
+  m.transform      = transform;
+  arrpush(s_Models, m);
+
+  s_triOffset += numTriangles;
+  s_pixOffset += texWidth * texHeight;
+  s_totalTriangles += numTriangles;
+  s_totalTexturePixels += texWidth * texHeight;
+
+  arrfree(triangles);
 }
 
-void engine_free_model(CustomModel* model)
+void engine_upload_models_data()
+{  
+  int numModels = arrlen(s_Models);
+  s_totalTriangles *= 3;
+
+  s_trianglesBuffer = clCreateBuffer(s_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        arrlen(s_allTriangles) * sizeof(Triangle), s_allTriangles, &s_err);
+
+  s_pixelsBuffer = clCreateBuffer(s_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        arrlen(s_allTexturePixels) * sizeof(Color), s_allTexturePixels, &s_err);
+
+  s_modelsBuffer = clCreateBuffer(s_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+        arrlen(s_Models) * sizeof(CustomModel), s_Models, &s_err);
+
+  s_projectedVertsBuffer = clCreateBuffer(s_context, CL_MEM_READ_WRITE,
+                                          sizeof(f4) * s_totalTriangles, NULL, NULL);
+
+  clSetKernelArg(s_vertexKernel, 4, sizeof(cl_mem), &s_projectedVertsBuffer);
+  clSetKernelArg(s_fragmentKernel, 1, sizeof(cl_mem), &s_projectedVertsBuffer);
+
+  clSetKernelArg(s_vertexKernel, 0, sizeof(cl_mem), &s_trianglesBuffer);
+  clSetKernelArg(s_vertexKernel, 1, sizeof(cl_mem), &s_modelsBuffer);
+  clSetKernelArg(s_vertexKernel, 2, sizeof(int), &numModels);
+  clSetKernelArg(s_vertexKernel, 3, sizeof(int), &s_totalTriangles);
+
+  clSetKernelArg(s_fragmentKernel, 6, sizeof(cl_mem), &s_trianglesBuffer);
+  clSetKernelArg(s_fragmentKernel, 7, sizeof(cl_mem), &s_modelsBuffer);
+  clSetKernelArg(s_fragmentKernel, 8, sizeof(int), &numModels);
+  clSetKernelArg(s_fragmentKernel, 9, sizeof(int), &s_totalTriangles);
+  clSetKernelArg(s_fragmentKernel, 10, sizeof(cl_mem), &s_pixelsBuffer);
+}
+
+void engine_print_model_data()
 {
-  arrfree(model->triangles);
-  model->triangles = NULL;
-  model->numTriangles = 0;
+    for (size_t m = 0; m < arrlen(s_Models); m++) {
+        CustomModel* model = &s_Models[m];
+        printf("Model %zu:\n", m);
+        printf("  Triangles: %d\n", model->triangleCount);
+        printf("  Texture size: %dx%d\n", model->texWidth, model->texHeight);
+        printf("  Transform matrix:\n");
+        MatPrint(&model->transform); 
+
+        for (int t = 0; t < model->triangleCount; t++) {
+            const Triangle* tri = &s_allTriangles[model->triangleOffset + t];
+            printf("  Triangle %d:\n", t);
+            for (int v = 0; v < 3; v++) {
+                printf("    Vertex %d:\n", v);
+                printf("      Position: (%f, %f, %f)\n",
+                       tri->vertex[v].x,
+                       tri->vertex[v].y,
+                       tri->vertex[v].z);
+                printf("      UV:       (%f, %f)\n",
+                       tri->uv[v].x,
+                       tri->uv[v].y);
+                printf("      Normal:   (%f, %f, %f)\n",
+                       tri->normal[v].x,
+                       tri->normal[v].y,
+                       tri->normal[v].z);
+            }
+            printf("    Color: (r=%d g=%d b=%d a=%d)\n",
+                   tri->color.r, tri->color.g, tri->color.b, tri->color.a);
+        }
+        printf("\n");
+    }
 }
 
-void engine_init_camera(CustomCamera* camera, int width, int height, float fov, float near_plane, float far_plane)
+void engine_free_models()
 {
-  camera->Position = (f3){0.0f, 0.0f, 0.0f};
-  camera->WorldUp = (f3){0.0f, 1.0f, 0.0f};
-  camera->Front = (f3){0.0f, 0.0f, 1.0f};
-  camera->aspect_ratio = (float)width / (float)height;
-  camera->near_plane = near_plane;
-  camera->far_plane = far_plane;
-  camera->fov = fov;
-  camera->fov_rad = DegToRad(camera->fov);  
-  camera->proj = MatPerspective(camera->fov_rad, camera->aspect_ratio, camera->near_plane, camera->far_plane);
-  camera->look_at = MatLookAt(camera->Position, f3Add(camera->Position, camera->Front), camera->WorldUp);
-  camera->yaw = 90.0f;
-  camera->pitch = 0.0f;
-  camera->speed = 2.0f;
-  camera->sens = 0.1f;
-  camera->lastX = width / 2.0f;
-  camera->lastY = height / 2.0f;
-  camera->firstMouse = true;
-  camera->deltaTime = 1.0/60.0f;
+  arrfree(s_allTriangles);
+  arrfree(s_allTexturePixels);
+  arrfree(s_Models);
+  s_triOffset = 0;
+  s_pixOffset = 0;
+  s_totalTriangles = 0;
+  s_totalTexturePixels = 0;
 }
 
-void engine_process_camera_keys(CustomCamera* camera, Camera_Movement direction)
+void engine_init_camera(int width, int height, float fov, float near_plane, float far_plane)
 {
-  float velocity = camera->speed * camera->deltaTime;
+  s_camera.Position = (f3){0.0f, 0.0f, 0.0f};
+  s_camera.WorldUp = (f3){0.0f, 1.0f, 0.0f};
+  s_camera.Front = (f3){0.0f, 0.0f, 1.0f};
+  s_camera.aspect_ratio = (float)width / (float)height;
+  s_camera.near_plane = near_plane;
+  s_camera.far_plane = far_plane;
+  s_camera.fov = fov;
+  s_camera.fov_rad = DegToRad(s_camera.fov);  
+  s_camera.proj = MatPerspective(s_camera.fov_rad, s_camera.aspect_ratio, s_camera.near_plane, s_camera.far_plane);
+  s_camera.look_at = MatLookAt(s_camera.Position, f3Add(s_camera.Position, s_camera.Front), s_camera.WorldUp);
+  s_camera.yaw = 90.0f;
+  s_camera.pitch = 0.0f;
+  s_camera.speed = 2.0f;
+  s_camera.sens = 0.1f;
+  s_camera.lastX = width / 2.0f;
+  s_camera.lastY = height / 2.0f;
+  s_camera.firstMouse = true;
+  s_camera.deltaTime = 1.0/60.0f;
 
-  if (direction == FORWARD) camera->Position = f3Add(camera->Position, f3MulS(camera->Front, velocity));
-  if (direction == BACKWARD) camera->Position = f3Add(camera->Position, f3MulS(camera->Front, -velocity));
-  if (direction == LEFT) camera->Position = f3Add(camera->Position, f3MulS(camera->Right, velocity));
-  if (direction == RIGHT) camera->Position = f3Add(camera->Position, f3MulS(camera->Right, -velocity));
+  s_projectionBuffer  = clCreateBuffer(s_context, CL_MEM_READ_ONLY, sizeof(f4x4), NULL, &s_err);
+  s_viewBuffer  = clCreateBuffer(s_context, CL_MEM_READ_ONLY, sizeof(f4x4), NULL, &s_err);
+  s_cameraPosBuffer  = clCreateBuffer(s_context, CL_MEM_READ_ONLY, sizeof(f3), NULL, &s_err);
+
+  clSetKernelArg(s_vertexKernel, 5, sizeof(cl_mem), &s_projectionBuffer); 
+  clSetKernelArg(s_vertexKernel, 6, sizeof(cl_mem), &s_viewBuffer); 
+  clSetKernelArg(s_vertexKernel, 7, sizeof(cl_mem), &s_cameraPosBuffer);
+
+  clSetKernelArg(s_fragmentKernel, 5, sizeof(cl_mem), &s_cameraPosBuffer);
+
+  clEnqueueWriteBuffer(s_queue, s_projectionBuffer, CL_TRUE, 0, sizeof(f4x4), &s_camera.proj, 0, NULL, NULL);
 }
-void engine_update_camera(CustomCamera* camera, float mouseX, float mouseY, bool constrainPitch)
+
+void engine_process_camera_keys(Movement direction)
+{
+  float velocity = s_camera.speed * s_camera.deltaTime;
+
+  if (direction == FORWARD) s_camera.Position = f3Add(s_camera.Position, f3MulS(s_camera.Front, velocity));
+  if (direction == BACKWARD) s_camera.Position = f3Add(s_camera.Position, f3MulS(s_camera.Front, -velocity));
+  if (direction == LEFT) s_camera.Position = f3Add(s_camera.Position, f3MulS(s_camera.Right, velocity));
+  if (direction == RIGHT) s_camera.Position = f3Add(s_camera.Position, f3MulS(s_camera.Right, -velocity));
+}
+void engine_update_camera(float mouseX, float mouseY, bool constrainPitch)
 {
   float xoffset, yoffset;
-  if (camera->firstMouse)
+  if (s_camera.firstMouse)
   {
-      camera->lastX = mouseX;
-      camera->lastY = mouseY;
-      camera->firstMouse = false;
+      s_camera.lastX = mouseX;
+      s_camera.lastY = mouseY;
+      s_camera.firstMouse = false;
   }
 
-  xoffset = camera->lastX - mouseX;
-  yoffset = camera->lastY - mouseY; 
+  xoffset = s_camera.lastX - mouseX;
+  yoffset = s_camera.lastY - mouseY; 
 
-  camera->lastX = mouseX;
-  camera->lastY = mouseY;
+  s_camera.lastX = mouseX;
+  s_camera.lastY = mouseY;
 
-  xoffset *= camera->sens;
-  yoffset *= camera->sens;
+  xoffset *= s_camera.sens;
+  yoffset *= s_camera.sens;
 
-  camera->yaw   += xoffset;
-  camera->pitch += yoffset;
+  s_camera.yaw   += xoffset;
+  s_camera.pitch += yoffset;
 
   if (constrainPitch)
   {
-      if (camera->pitch > 89.0f)  camera->pitch = 89.0f;
-      if (camera->pitch < -89.0f) camera->pitch = -89.0f;
+      if (s_camera.pitch > 89.0f)  s_camera.pitch = 89.0f;
+      if (s_camera.pitch < -89.0f) s_camera.pitch = -89.0f;
   }
 
   f3 front;
-  front.x = cosf(DegToRad(camera->yaw)) * cosf(DegToRad(camera->pitch));
-  front.y = sinf(DegToRad(camera->pitch));
-  front.z = sinf(DegToRad(camera->yaw)) * cosf(DegToRad(camera->pitch));
-  camera->Front = f3Norm(front);
+  front.x = cosf(DegToRad(s_camera.yaw)) * cosf(DegToRad(s_camera.pitch));
+  front.y = sinf(DegToRad(s_camera.pitch));
+  front.z = sinf(DegToRad(s_camera.yaw)) * cosf(DegToRad(s_camera.pitch));
+  s_camera.Front = f3Norm(front);
 
-  camera->Right = f3Norm(f3Cross(camera->Front, camera->WorldUp));
-  camera->Up    = f3Norm(f3Cross(camera->Right, camera->Front));
+  s_camera.Right = f3Norm(f3Cross(s_camera.Front, s_camera.WorldUp));
+  s_camera.Up    = f3Norm(f3Cross(s_camera.Right, s_camera.Front));
 
-  camera->look_at = MatLookAt(camera->Position, f3Add(camera->Position, camera->Front), camera->Up);
+  s_camera.look_at = MatLookAt(s_camera.Position, f3Add(s_camera.Position, s_camera.Front), s_camera.Up);
 }
