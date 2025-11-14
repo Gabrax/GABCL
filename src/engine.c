@@ -393,7 +393,7 @@ void engine_print_model_data()
     }
 }
 
-void engine_free_models()
+void engine_free_all_models()
 {
   arrfree(s_allTriangles);
   arrfree(s_allTexturePixels);

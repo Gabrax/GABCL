@@ -33,6 +33,7 @@ int main()
     engine_read_and_display();
   }
 
+  engine_free_all_models();
   engine_close();
 
   return 0;

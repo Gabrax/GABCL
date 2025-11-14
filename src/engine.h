@@ -31,7 +31,7 @@ void engine_close();
 void engine_load_model(const char* filePath,const char* texturePath,f4x4 transform);
 void engine_upload_models_data();
 void engine_print_model_data();
-void engine_free_model();
+void engine_free_all_models();
 void engine_init_camera(int width, int height, float fov, float near_plane, float far_plane);
 
 void engine_process_camera_keys(Movement direction);

@@ -86,19 +86,6 @@ __kernel void vertex_kernel(
   v_model.z = vert.x * transform2.z0 + vert.y * transform2.z1 + vert.z * transform2.z2 + vert.w * transform2.z3;
   v_model.w = vert.x * transform2.w0 + vert.y * transform2.w1 + vert.z * transform2.w2 + vert.w * transform2.w3;
 
-  float3 normal = (float3)(tri->normal[vertIdx].x,tri->normal[vertIdx].y,tri->normal[vertIdx].z);
-  float3 normal_world = normalize((float3)(
-      normal.x * transform2.x0 + normal.y * transform2.x1 + normal.z * transform2.x2,
-      normal.x * transform2.y0 + normal.y * transform2.y1 + normal.z * transform2.y2,
-      normal.x * transform2.z0 + normal.y * transform2.z1 + normal.z * transform2.z2
-  ));
-
-  float3 viewDir = normalize(*cameraPos - (float3)(v_model.x, v_model.y, v_model.z));
-  if (dot(normal_world, viewDir) < 0.0f) {
-      projVerts[i] = (float4)(-FLT_MAX);
-      return;
-  }
-
   float4 v_view;
   v_view.x = v_model.x * view->x0 + v_model.y * view->x1 + v_model.z * view->x2 + v_model.w * view->x3;
   v_view.y = v_model.x * view->y0 + v_model.y * view->y1 + v_model.z * view->y2 + v_model.w * view->y3;
@@ -112,11 +99,6 @@ __kernel void vertex_kernel(
   v_clip.w = v_view.x * projection->w0 + v_view.y * projection->w1 + v_view.z * projection->w2 + v_view.w * projection->w3;
 
 
-  if (v_clip.w >= 0.0f) {
-      projVerts[i] = (float4)(-FLT_MAX);
-      return;
-  }
-
   // --- Perspective divide ---
   float ndc_x = v_clip.x / v_clip.w;
   float ndc_y = v_clip.y / v_clip.w;
@@ -128,11 +110,6 @@ __kernel void vertex_kernel(
   float sz = ndc_z * 0.5f + 0.5f;
 
   projVerts[i] = (float4)(sx, sy, sz, v_clip.w);
-}
-
-inline float3 reflect(float3 I, float3 N)
-{
-    return I - 2.0f * dot(N, I) * N;
 }
 
 inline float SignedTriangleArea(float2 a, float2 b, float2 c)
@@ -210,15 +187,17 @@ __kernel void fragment_kernel(
             float4 pv1 = projVerts[triIdx * 3 + 1];
             float4 pv2 = projVerts[triIdx * 3 + 2];
 
-            if (pv0.w == -FLT_MAX || pv1.w == -FLT_MAX || pv2.w == -FLT_MAX)
-                continue;
+            if (pv0.w >= 0 || pv1.w >= 0 || pv2.w >= 0)
+                continue; // discard whole triangle
 
             float2 v0 = (float2)(pv0.x, pv0.y);
             float2 v1 = (float2)(pv1.x, pv1.y);
             float2 v2 = (float2)(pv2.x, pv2.y);
 
-            float area = SignedTriangleArea(v0, v1, v2);
-            if (area <= 0.0f) continue;
+            float area = (v1.x - v0.x) * (v2.y - v0.y)
+                       - (v1.y - v0.y) * (v2.x - v0.x);
+
+            if (area <= 0.0f) continue;  // Cull triangle
 
             float a = SignedTriangleArea(P, v1, v2) / area;
             float b = SignedTriangleArea(P, v2, v0) / area;
