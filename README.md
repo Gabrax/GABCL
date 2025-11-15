@@ -19,4 +19,5 @@ For general build script info run ```sh build.sh --help```
 - [raylib](https://github.com/raysan5/raylib)
 - [OpenCL-SDK](https://github.com/KhronosGroup/OpenCL-SDK)
 - [stb_ds](https://github.com/nothings/stb/blob/master/stb_ds.h)
+- [assimp](https://github.com/assimp/assimp)
 
