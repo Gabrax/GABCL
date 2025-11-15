@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "raylib.h"
 
 int main()
 {
@@ -31,6 +32,7 @@ int main()
 
     engine_run_rasterizer();
     engine_read_and_display();
+    printf("%d\n",GetFPS());
   }
 
   engine_free_all_models();

@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "CL/cl.h"
+#include "CL/cl_platform.h"
 #include "raylib.h"
 
 #define GABMATH_IMPLEMENTATION
@@ -79,11 +80,25 @@ typedef struct {
     f4x4 transform;
 } CustomModel;
 
+typedef struct {
+    int triIndex;
+    int minX, maxX, minY, maxY; // bbox inclusive (in pixel coords)
+    f2 v0; f2 v1; f2 v2; // screen-space XY (pixels)
+    float z0, z1, z2; // pv.z (NDC mapped value used in your earlier depth calc)
+    float w0, w1, w2; // clip w (for perspective correction)
+    float invArea; // 1/area (screen-space edge function denom)
+    int modelIndex;
+    int texOffset;
+    int texW;
+    int texH;
+} TriMeta;
+
 static Triangle* s_allTriangles = NULL;
 static Color* s_allTexturePixels = NULL;
 static CustomModel* s_Models = NULL;
 
 static size_t s_totalTriangles = 0;
+static size_t s_totalVerts = 0;
 static size_t s_totalTexturePixels = 0;
 static size_t s_triOffset = 0;
 static size_t s_pixOffset = 0;
@@ -135,7 +150,7 @@ void engine_init(const char* kernel,int width, int height)
                                       s_screenResolution[0] * s_screenResolution[1]
                                               * sizeof(Color), NULL, NULL);
   s_depthBuffer = clCreateBuffer(s_context, CL_MEM_READ_WRITE,
-                                      sizeof(float) * s_screenResolution[0]
+                                      sizeof(cl_uint) * s_screenResolution[0]
                                                     * s_screenResolution[1],
                                                     NULL, &s_err);
 
@@ -181,7 +196,7 @@ void engine_send_camera_matrix()
 void engine_run_rasterizer()
 {
   clEnqueueNDRangeKernel(s_queue, s_vertexKernel, 1, NULL,
-                         &s_totalTriangles, NULL, 0, NULL, NULL);
+                         &s_totalVerts, NULL, 0, NULL, NULL);
   clEnqueueNDRangeKernel(s_queue, s_fragmentKernel, 2, NULL,
                          s_screenResolution, NULL, 0, NULL, NULL);
 }
@@ -247,6 +262,8 @@ void engine_load_model(const char* filePath, const char* texturePath, f4x4 trans
   size_t numTriangles = 0;
   size_t numVertices = 0;
 
+  int modelIndex = arrlen(s_Models);
+
   for (unsigned int m = 0; m < scene->mNumMeshes; m++) {
       const struct aiMesh* mesh = scene->mMeshes[m];
 
@@ -273,6 +290,8 @@ void engine_load_model(const char* filePath, const char* texturePath, f4x4 trans
                   tri.uv[i].y = mesh->mTextureCoords[0][idx].y;
               }
           }
+          
+          tri.modelIdx = modelIndex;
 
           arrpush(triangles, tri);
           numTriangles++;
@@ -330,7 +349,7 @@ void engine_load_model(const char* filePath, const char* texturePath, f4x4 trans
 void engine_upload_models_data()
 {  
   int numModels = arrlen(s_Models);
-  s_totalTriangles *= 3;
+  s_totalVerts = s_totalTriangles * 3;
 
   s_trianglesBuffer = clCreateBuffer(s_context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
         arrlen(s_allTriangles) * sizeof(Triangle), s_allTriangles, &s_err);
@@ -342,7 +361,7 @@ void engine_upload_models_data()
         arrlen(s_Models) * sizeof(CustomModel), s_Models, &s_err);
 
   s_projectedVertsBuffer = clCreateBuffer(s_context, CL_MEM_READ_WRITE,
-                                          sizeof(f4) * s_totalTriangles, NULL, NULL);
+                                          sizeof(f4) * s_totalVerts, NULL, NULL);
 
   clSetKernelArg(s_vertexKernel, 4, sizeof(cl_mem), &s_projectedVertsBuffer);
   clSetKernelArg(s_fragmentKernel, 1, sizeof(cl_mem), &s_projectedVertsBuffer);
@@ -350,13 +369,12 @@ void engine_upload_models_data()
   clSetKernelArg(s_vertexKernel, 0, sizeof(cl_mem), &s_trianglesBuffer);
   clSetKernelArg(s_vertexKernel, 1, sizeof(cl_mem), &s_modelsBuffer);
   clSetKernelArg(s_vertexKernel, 2, sizeof(int), &numModels);
-  clSetKernelArg(s_vertexKernel, 3, sizeof(int), &s_totalTriangles);
+  clSetKernelArg(s_vertexKernel, 3, sizeof(int), &s_totalVerts);
 
   clSetKernelArg(s_fragmentKernel, 6, sizeof(cl_mem), &s_trianglesBuffer);
   clSetKernelArg(s_fragmentKernel, 7, sizeof(cl_mem), &s_modelsBuffer);
   clSetKernelArg(s_fragmentKernel, 8, sizeof(int), &numModels);
-  clSetKernelArg(s_fragmentKernel, 9, sizeof(int), &s_totalTriangles);
-  clSetKernelArg(s_fragmentKernel, 10, sizeof(cl_mem), &s_pixelsBuffer);
+  clSetKernelArg(s_fragmentKernel, 9, sizeof(cl_mem), &s_pixelsBuffer);
 }
 
 void engine_print_model_data()
@@ -386,8 +404,6 @@ void engine_print_model_data()
                        tri->normal[v].y,
                        tri->normal[v].z);
             }
-            printf("    Color: (r=%d g=%d b=%d a=%d)\n",
-                   tri->color.r, tri->color.g, tri->color.b, tri->color.a);
         }
         printf("\n");
     }

@@ -8,9 +8,9 @@
 
 typedef struct {
     f3 vertex[3]; 
-    f2 uv[3];
     f3 normal[3];
-    Color color;
+    f2 uv[3];
+    int modelIdx;
 } Triangle;
 
 typedef enum {

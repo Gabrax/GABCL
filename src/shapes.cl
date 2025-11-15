@@ -11,9 +11,9 @@ typedef struct Mat4 {
 
 typedef struct {
     Vec3 vertex[3];
-    Vec2 uv[3];
     Vec3 normal[3];
-    Pixel color;
+    Vec2 uv[3];
+    int modelIdx;
 } Triangle;
 
 typedef struct {
@@ -45,7 +45,7 @@ __kernel void vertex_kernel(
     __global Triangle* tris,
     __global CustomModel* models,
     int numModels,
-    int totalTriangles,
+    int totalVerts,
     __global float4* projVerts,
     __global Mat4* projection,
     __global Mat4* view,
@@ -54,23 +54,13 @@ __kernel void vertex_kernel(
     int height)
 {
   int i = get_global_id(0);
-  if (i >= totalTriangles * 3) return;
+  if (i >= totalVerts) return;
 
   int triIdx = i / 3;
   int vertIdx = i % 3;
 
-  // --- Find which model this triangle belongs to ---
-  int modelIndex = 0;
-  for (int m = 0; m < numModels; m++) {
-      if (triIdx >= models[m].triangleOffset &&
-          triIdx < models[m].triangleOffset + models[m].triangleCount) {
-          modelIndex = m;
-          break;
-      }
-  }
-
-  CustomModel model = models[modelIndex];
-  __global Triangle* tri = &tris[triIdx];
+  __global const Triangle* tri = &tris[triIdx];
+  __global const CustomModel* model = &models[tri->modelIdx];
 
   float4 vert = (float4)(
       tri->vertex[vertIdx].x,
@@ -79,7 +69,7 @@ __kernel void vertex_kernel(
       1.0f
   );
 
-  Mat4 transform2 = model.transform;
+  Mat4 transform2 = model->transform;
   float4 v_model;
   v_model.x = vert.x * transform2.x0 + vert.y * transform2.x1 + vert.z * transform2.x2 + vert.w * transform2.x3;
   v_model.y = vert.x * transform2.y0 + vert.y * transform2.y1 + vert.z * transform2.y2 + vert.w * transform2.y3;
@@ -128,34 +118,6 @@ inline Pixel sample_texture(__global Pixel* texture, int texWidth, int texHeight
   return texture[v * texWidth + u];
 }
 
-inline Pixel sample_texture_bilinear(__global Pixel* texture, int texWidth, int texHeight, float2 uv)
-{
-  uv.x = clamp(uv.x, 0.0f, 1.0f);
-  uv.y = clamp(uv.y, 0.0f, 1.0f);
-
-  float fx = uv.x * (texWidth - 1);
-  float fy = (1.0f - uv.y) * (texHeight - 1);
-
-  int x0 = (int)floor(fx);
-  int y0 = (int)floor(fy);
-  int x1 = min(x0 + 1, texWidth - 1);
-  int y1 = min(y0 + 1, texHeight - 1);
-
-  float tx = fx - x0;
-  float ty = fy - y0;
-
-  Pixel c00 = texture[y0 * texWidth + x0];
-  Pixel c10 = texture[y0 * texWidth + x1];
-  Pixel c01 = texture[y1 * texWidth + x0];
-  Pixel c11 = texture[y1 * texWidth + x1];
-
-  float3 c0 = (float3)(c00.r, c00.g, c00.b) * (1 - tx) + (float3)(c10.r, c10.g, c10.b) * tx;
-  float3 c1 = (float3)(c01.r, c01.g, c01.b) * (1 - tx) + (float3)(c11.r, c11.g, c11.b) * tx;
-  float3 color = c0 * (1 - ty) + c1 * ty;
-
-  return (Pixel){(uchar)color.x, (uchar)color.y, (uchar)color.z, 255};
-}
-
 __kernel void fragment_kernel(
     __global Pixel* pixels,
     __global float4* projVerts,
@@ -163,8 +125,10 @@ __kernel void fragment_kernel(
     int height,
     __global float* depthBuffer,
     __global float3* cameraPos,
-    __global Triangle* tris2,__global CustomModel* models,int numModels,
-    int totalTriangles,__global Pixel* textures)
+    __global Triangle* tris2,
+    __global CustomModel* models,
+    int numModels, 
+    __global Pixel* textures)
 {
     int x = get_global_id(0);
     int y = get_global_id(1);
@@ -177,10 +141,10 @@ __kernel void fragment_kernel(
 
     for (int modelidx = 0; modelidx < numModels; modelidx++)
     {
-        CustomModel model = models[modelidx];
+        __global const CustomModel* model = &models[modelidx];
 
-        for (int triIdx = model.triangleOffset;
-             triIdx < model.triangleOffset + model.triangleCount;
+        for (int triIdx = model->triangleOffset;
+             triIdx < model->triangleOffset + model->triangleCount;
              triIdx++)
         {
             float4 pv0 = projVerts[triIdx * 3 + 0];
@@ -212,7 +176,7 @@ __kernel void fragment_kernel(
 
                 if (depth < depthBuffer[idx])
                 {
-                    __global Triangle* t = &tris2[triIdx];
+                    __global const Triangle* t = &tris2[triIdx];
 
                     float2 uv0 = (float2){t->uv[0].x,t->uv[0].y};
                     float2 uv1 = (float2){t->uv[1].x,t->uv[1].y};
@@ -227,9 +191,9 @@ __kernel void fragment_kernel(
                     float3 norm2 = (float3){t->normal[2].x,t->normal[2].y,t->normal[2].z};
                     float3 norm = normalize((norm0*(a*z0) + norm1*(b*z1) + norm2*(g*z2)) / depth);
 
-                    int texOffset = model.pixelOffset;
-                    int tw = model.texWidth;
-                    int th = model.texHeight;
+                    int texOffset = model->pixelOffset;
+                    int tw = model->texWidth;
+                    int th = model->texHeight;
 
                     float3 texColor;
                     if (tw > 0 && th > 0) {
@@ -255,63 +219,3 @@ __kernel void fragment_kernel(
         }
     }
 }
-
-// WIREFRAME
-/*__kernel void fragment_kernel(*/
-/*    __global Pixel* pixels,*/
-/*    __global Triangle* tris,*/
-/*    __global float3* projVerts,*/
-/*    int numTriangles,*/
-/*    int width,*/
-/*    int height)*/
-/*{*/
-/*  int x = get_global_id(0);*/
-/*  int y = get_global_id(1);*/
-/*  if (x >= width || y >= height) return;*/
-/**/
-/*  float px = (float)x;*/
-/*  float py = (float)y;*/
-/**/
-/*  float edgeThickness = 0.5f; // pixels wide*/
-/**/
-/*  for (int tri = 0; tri < numTriangles; tri++)*/
-/*  {*/
-/*    __global Triangle* t = &tris[tri];*/
-/**/
-/*    float3 v0 = projVerts[tri*3 + 0];*/
-/*    float3 v1 = projVerts[tri*3 + 1];*/
-/*    float3 v2 = projVerts[tri*3 + 2];*/
-/**/
-/*    float3 n0 = normalize((float3)(t->normal[tri*3 + 0].x,t->normal[tri*3 + 0].y,t->normal[tri*3 + 0].z));*/
-/*    float3 n1 = normalize((float3)(t->normal[tri*3 + 1].x,t->normal[tri*3 + 1].y,t->normal[tri*3 + 1].z));*/
-/*    float3 n2 = normalize((float3)(t->normal[tri*3 + 2].x,t->normal[tri*3 + 2].y,t->normal[tri*3 + 2].z));*/
-/**/
-/*    // 2D projected positions*/
-/*    float2 p0 = (float2)(v0.x, v0.y);*/
-/*    float2 p1 = (float2)(v1.x, v1.y);*/
-/*    float2 p2 = (float2)(v2.x, v2.y);*/
-/**/
-/*    // Compute barycentric coordinates*/
-/*    float den = (p1.x - p0.x)*(p2.y - p0.y) - (p2.x - p0.x)*(p1.y - p0.y);*/
-/*    if (fabs(den) < 1e-6f) continue;*/
-/**/
-/*    float a = ((p2.y - p0.y)*(px - p0.x) - (p2.x - p0.x)*(py - p0.y)) / den;*/
-/*    float b = (-(p1.y - p0.y)*(px - p0.x) + (p1.x - p0.x)*(py - p0.y)) / den;*/
-/*    float g = 1.0f - a - b;*/
-/**/
-/*    // Check if inside triangle bounds (with small margin)*/
-/*    if (a >= -0.01f && b >= -0.01f && g >= -0.01f)*/
-/*    {*/
-/*      // Distance from edges in barycentric space*/
-/*      float da = fabs(a);*/
-/*      float db = fabs(b);*/
-/*      float dg = fabs(g);*/
-/**/
-/*      // If near any edge (within thickness)*/
-/*      if (a < edgeThickness/100.0f || b < edgeThickness/100.0f || g < edgeThickness/100.0f)*/
-/*      {*/
-/*          pixels[y*width + x] = t->color; // triangle color for wire*/
-/*      }*/
-/*    }*/
-/*  }*/
-/*}*/
